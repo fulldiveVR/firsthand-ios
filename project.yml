@@ -1,0 +1,35 @@
+# Rename the app here: change `name`, the target key and PRODUCT_BUNDLE_IDENTIFIER.
+# Code, Info.plist and entitlements read the name and bundle id from build settings.
+name: Candid
+options:
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+packages:
+  CandidCore:
+    path: Packages/CandidCore
+targets:
+  Candid:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: CandidCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.candid
+        INFOPLIST_FILE: App/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: App/Resources/Candid.entitlements
+        CODE_SIGN_STYLE: Automatic
+        # Set your own team in Xcode. Do not commit it.
+        DEVELOPMENT_TEAM: ""
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_PREVIEWS: YES
