@@ -1,4 +1,4 @@
-# Candid
+# Firsthand
 
 An iPhone AI that finds meaningful moments and suggests a camera-original photo to share with your approved friends, only when you say yes.
 
@@ -15,7 +15,7 @@ Requires Xcode 26 or later and an iPhone with iOS 26 or later.
 
 ```sh
 brew install xcodegen && xcodegen generate
-open Candid.xcodeproj
+open Firsthand.xcodeproj
 ```
 
 The `.xcodeproj` is generated and not committed. Set your own development team in Xcode, do not commit it.
@@ -23,7 +23,7 @@ The `.xcodeproj` is generated and not committed. Set your own development team i
 Domain logic tests run on macOS without Xcode:
 
 ```sh
-cd Packages/CandidCore && swift test
+cd Packages/FirsthandCore && swift test
 ```
 
 With Command Line Tools only (no Xcode), `swift test` may not find the Swift Testing macros. Pass the plugin path:
@@ -37,7 +37,7 @@ swift test -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/us
 ```
 project.yml                 XcodeGen spec. App name and bundle id live here.
 App/                        SwiftUI iOS app
-  CandidApp.swift           entry point, BGTaskScheduler registration
+  FirsthandApp.swift        entry point, BGTaskScheduler registration
   AnalysisScheduler.swift   BGProcessingTask (external power) and the first scan (BGContinuedProcessingTask)
   AppModel.swift            UI state, Share (Face ID) and Skip
   AppServices.swift         wiring of real adapters, history file
@@ -46,7 +46,7 @@ App/                        SwiftUI iOS app
                             notifications, LocalAuthentication, CloudKit sharing
   Views/                    Onboarding, Today, Feed, Friends, Settings
   Resources/                Info.plist, entitlements
-Packages/CandidCore/        pure Swift package, tested on macOS
+Packages/FirsthandCore/     pure Swift package, tested on macOS
   Models.swift              PhotoCandidate, AnalysisSignals, ProvenanceStatus, Suggestion, Friend, Post
   Protocols.swift           PhotoLibrary, ImageAnalyzer, ShareService, FriendDirectory, Notifier, Clock
   MomentScorer.swift        deterministic scoring, all weights in one struct

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CandidCore
+@testable import FirsthandCore
 
 @Suite struct SuggestionEngineTests {
     let engine = SuggestionEngine(policy: SuggestionPolicy(dailyCap: 1, cooldown: 6 * 3600, minimumScore: 0.55), calendar: utcCalendar)

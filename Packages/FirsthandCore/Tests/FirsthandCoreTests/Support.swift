@@ -1,5 +1,5 @@
 import Foundation
-@testable import CandidCore
+@testable import FirsthandCore
 
 let day0 = Date(timeIntervalSince1970: 1_800_000_000)
 

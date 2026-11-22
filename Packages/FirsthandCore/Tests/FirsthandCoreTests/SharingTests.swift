@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CandidCore
+@testable import FirsthandCore
 
 private func post(_ n: Int, by owner: String, at offset: TimeInterval, caption: String? = nil) -> Post {
     Post(

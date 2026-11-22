@@ -1,10 +1,10 @@
 #if os(iOS)
 import AuthenticationServices
-import CandidCore
+import FirsthandCore
 import SwiftUI
 
 @main
-struct CandidApp: App {
+struct FirsthandApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel(services: .live)
     @Environment(\.scenePhase) private var scenePhase

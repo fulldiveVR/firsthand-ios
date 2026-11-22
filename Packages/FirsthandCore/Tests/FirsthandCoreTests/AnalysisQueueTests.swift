@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CandidCore
+@testable import FirsthandCore
 
 @Suite struct AnalysisQueueTests {
     let assets = (1...5).map { PhotoAsset(id: "p\($0)", captureDate: day0.addingTimeInterval(Double($0))) }

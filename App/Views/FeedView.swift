@@ -1,5 +1,5 @@
 #if os(iOS)
-import CandidCore
+import FirsthandCore
 import SwiftUI
 
 /// Friends' posts, newest first. No like counts, no ranking.

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CandidCore
+@testable import FirsthandCore
 
 private let minute: TimeInterval = 60
 private let hour: TimeInterval = 3600

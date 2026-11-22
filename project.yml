@@ -1,6 +1,6 @@
 # Rename the app here: change `name`, the target key and PRODUCT_BUNDLE_IDENTIFIER.
 # Code, Info.plist and entitlements read the name and bundle id from build settings.
-name: Candid
+name: Firsthand
 options:
   deploymentTarget:
     iOS: "26.0"
@@ -10,22 +10,22 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
 packages:
-  CandidCore:
-    path: Packages/CandidCore
+  FirsthandCore:
+    path: Packages/FirsthandCore
 targets:
-  Candid:
+  Firsthand:
     type: application
     platform: iOS
     sources:
       - path: App
     dependencies:
-      - package: CandidCore
+      - package: FirsthandCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.candid
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.firsthand
         INFOPLIST_FILE: App/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_ENTITLEMENTS: App/Resources/Candid.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Resources/Firsthand.entitlements
         CODE_SIGN_STYLE: Automatic
         # Set your own team in Xcode. Do not commit it.
         DEVELOPMENT_TEAM: ""

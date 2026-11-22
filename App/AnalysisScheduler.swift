@@ -1,6 +1,6 @@
 #if os(iOS)
 import BackgroundTasks
-import CandidCore
+import FirsthandCore
 import Foundation
 import Synchronization
 

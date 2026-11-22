@@ -1,5 +1,5 @@
 #if os(iOS)
-import CandidCore
+import FirsthandCore
 import Foundation
 
 /// The product name and bundle id come from project.yml. Code reads them from the bundle.
@@ -10,7 +10,7 @@ enum AppInfo {
             ?? "App"
     }
 
-    static var bundleID: String { Bundle.main.bundleIdentifier ?? "com.example.candid" }
+    static var bundleID: String { Bundle.main.bundleIdentifier ?? "com.example.firsthand" }
 
     static var analysisTaskID: String { bundleID + ".analysis" }
 

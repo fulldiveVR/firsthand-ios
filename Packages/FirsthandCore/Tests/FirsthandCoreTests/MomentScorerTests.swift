@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CandidCore
+@testable import FirsthandCore
 
 @Suite struct ProvenanceTests {
     @Test func screenshotsAreExcluded() {

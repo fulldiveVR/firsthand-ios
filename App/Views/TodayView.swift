@@ -1,5 +1,5 @@
 #if os(iOS)
-import CandidCore
+import FirsthandCore
 import SwiftUI
 
 struct TodayView: View {
