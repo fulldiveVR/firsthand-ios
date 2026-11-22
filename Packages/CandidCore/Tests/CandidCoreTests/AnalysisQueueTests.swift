@@ -7,47 +7,46 @@ import Testing
 
     @Test func resumesAfterInterruptionWithoutRepeatingWork() async throws {
         let library = FakeLibrary(assets: assets)
-        let store = InMemoryCheckpointStore()
+        let cache = InMemoryAnalysisCache()
 
         let analyzer1 = RecordingAnalyzer()
-        let queue1 = AnalysisQueue(library: library, analyzer: analyzer1, store: store)
+        let queue1 = AnalysisQueue(library: library, analyzer: analyzer1, cache: cache)
         let budget = Budget(2)
         let partial = try await queue1.run(since: day0, shouldContinue: { budget.take() })
         #expect(!partial.isComplete)
         #expect(partial.analyzedThisRun == 2)
-        #expect(await store.checkpoint.processedAssetIDs == ["p1", "p2"])
+        #expect(Set(await cache.storage.keys) == ["p1", "p2"])
 
-        // A new process: new queue and analyzer, same store.
+        // A new process: new queue and analyzer, same cache.
         let analyzer2 = RecordingAnalyzer()
-        let queue2 = AnalysisQueue(library: library, analyzer: analyzer2, store: store)
+        let queue2 = AnalysisQueue(library: library, analyzer: analyzer2, cache: cache)
         let full = try await queue2.run(since: day0)
         #expect(full.isComplete)
         #expect(await analyzer2.analyzed == ["p3", "p4", "p5"])
         #expect(full.candidates.map(\.assetID) == ["p1", "p2", "p3", "p4", "p5"])
     }
 
-    @Test func savesCheckpointAfterEveryPhoto() async throws {
-        let store = InMemoryCheckpointStore()
-        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), store: store)
+    @Test func storesARecordAfterEveryPhoto() async throws {
+        let cache = InMemoryAnalysisCache()
+        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), cache: cache)
         _ = try await queue.run(since: day0)
-        #expect(await store.saveCount == 5)
+        #expect(await cache.upsertCount == 5)
     }
 
     @Test func screenshotsAreSkippedWithoutAnalysis() async throws {
         let withShot = assets + [PhotoAsset(id: "shot", captureDate: day0, isScreenshot: true)]
         let analyzer = RecordingAnalyzer()
-        let store = InMemoryCheckpointStore()
-        let queue = AnalysisQueue(library: FakeLibrary(assets: withShot), analyzer: analyzer, store: store)
+        let cache = InMemoryAnalysisCache()
+        let queue = AnalysisQueue(library: FakeLibrary(assets: withShot), analyzer: analyzer, cache: cache)
         let result = try await queue.run(since: day0)
         #expect(!(await analyzer.analyzed).contains("shot"))
-        #expect(await store.checkpoint.processedAssetIDs.contains("shot"))
+        #expect(await cache.storage["shot"] != nil)
         #expect(!result.candidates.contains { $0.assetID == "shot" })
     }
 
     @Test func brokenAssetDoesNotBlockQueue() async throws {
         let analyzer = RecordingAnalyzer(failing: ["p2"])
-        let store = InMemoryCheckpointStore()
-        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: analyzer, store: store)
+        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: analyzer, cache: InMemoryAnalysisCache())
         let result = try await queue.run(since: day0)
         #expect(result.isComplete)
         #expect(result.candidates.count == 4)
@@ -56,20 +55,89 @@ import Testing
         #expect(await analyzer.analyzed.count == 5)
     }
 
-    @Test func fileStoreRoundTrips() async throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathComponent("checkpoint.json")
-        let store = FileCheckpointStore(url: url)
-        #expect(try await store.load() == AnalysisCheckpoint())
+    @Test func secondRunAnalyzesOnlyNewAndChangedAssets() async throws {
+        let analyzer = RecordingAnalyzer()
+        let cache = InMemoryAnalysisCache()
+        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: analyzer, cache: cache)
+        _ = try await queue.run(since: day0)
 
-        let checkpoint = AnalysisCheckpoint(processedAssetIDs: ["a"], candidates: [candidate("a")])
-        try await store.save(checkpoint)
-        #expect(try await FileCheckpointStore(url: url).load() == checkpoint)
+        var changed = assets
+        changed[1].hasAdjustments = true
+        changed[2].modificationDate = day0.addingTimeInterval(100)
+        changed.append(PhotoAsset(id: "p6", captureDate: day0.addingTimeInterval(6)))
+        #expect(try await queue.pendingAssets(changed).map(\.id) == ["p2", "p3", "p6"])
 
-        try await store.clear()
-        #expect(try await store.load() == AnalysisCheckpoint())
-        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        let result = try await AnalysisQueue(library: FakeLibrary(assets: changed), analyzer: analyzer, cache: cache)
+            .run(since: day0)
+        #expect(result.analyzedThisRun == 3)
+        #expect(result.pendingAtStart == 3)
+        #expect(await analyzer.analyzed == ["p1", "p2", "p3", "p4", "p5", "p2", "p3", "p6"])
+        #expect(result.candidates.first { $0.assetID == "p2" }?.hasAdjustments == true)
+    }
+
+    @Test func observerPathAnalyzesOnlyGivenNewAssets() async throws {
+        let analyzer = RecordingAnalyzer()
+        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: analyzer, cache: InMemoryAnalysisCache())
+        _ = try await queue.analyze([assets[0]])
+        _ = try await queue.analyze([assets[0], assets[1]])
+        #expect(await analyzer.analyzed == ["p1", "p2"])
+    }
+
+    @Test func reportsProgress() async throws {
+        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), cache: InMemoryAnalysisCache())
+        let log = ProgressLog()
+        _ = try await queue.run(since: day0, progress: { log.add($0) })
+        #expect(log.items.first == AnalysisProgress(completed: 0, total: 5))
+        #expect(log.items.last == AnalysisProgress(completed: 5, total: 5))
+    }
+
+    @Test func forgetAndPruneDropRecords() async throws {
+        let cache = InMemoryAnalysisCache()
+        let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), cache: cache)
+        _ = try await queue.run(since: day0)
+        try await queue.forget(["p1"])
+        #expect(await cache.storage["p1"] == nil)
+
+        // A later window prunes records captured before it.
+        _ = try await queue.run(since: day0.addingTimeInterval(4))
+        #expect(Set(await cache.storage.keys) == ["p4", "p5"])
+    }
+
+    @Test func fileCacheRoundTripsAndBuffersWrites() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("analysis.json")
+        let cache = FileAnalysisCache(url: url, writeEvery: 2)
+        #expect(try await cache.records().isEmpty)
+
+        let record = AnalysisRecord(revision: "r1", captureDate: day0, candidate: candidate("a"))
+        try await cache.upsert(record, for: "a")
+        // Buffered: a new process does not see it yet.
+        #expect(try await FileAnalysisCache(url: url).records().isEmpty)
+
+        try await cache.upsert(AnalysisRecord(revision: "r1", captureDate: day0, candidate: nil), for: "b")
+        #expect(try await FileAnalysisCache(url: url).records() == ["a": record, "b": AnalysisRecord(revision: "r1", captureDate: day0, candidate: nil)])
+
+        try await cache.upsert(AnalysisRecord(revision: "r2", captureDate: day0, candidate: nil), for: "c")
+        try await cache.flush()
+        #expect(try await FileAnalysisCache(url: url).records().count == 3)
+
+        try await cache.clear()
+        #expect(try await cache.records().isEmpty)
+        #expect(try await FileAnalysisCache(url: url).records().isEmpty)
+    }
+
+    @Test func queueWithFileCacheSkipsWorkAcrossProcesses() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("analysis.json")
+        let library = FakeLibrary(assets: assets)
+        _ = try await AnalysisQueue(library: library, analyzer: RecordingAnalyzer(), cache: FileAnalysisCache(url: url)).run(since: day0)
+
+        let analyzer = RecordingAnalyzer()
+        let result = try await AnalysisQueue(library: library, analyzer: analyzer, cache: FileAnalysisCache(url: url)).run(since: day0)
+        #expect(await analyzer.analyzed.isEmpty)
+        #expect(result.candidates.count == 5)
     }
 }
 
@@ -78,7 +146,7 @@ import Testing
         let assets = (1...3).map { PhotoAsset(id: "p\($0)", captureDate: day0) }
         let notifier = RecordingNotifier()
         let pipeline = SuggestionPipeline(
-            queue: AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), store: InMemoryCheckpointStore()),
+            queue: AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), cache: InMemoryAnalysisCache()),
             engine: SuggestionEngine(calendar: utcCalendar),
             notifier: notifier,
             clock: FixedClock(day0.addingTimeInterval(3600))

@@ -1,119 +1,114 @@
 import Foundation
 
-public struct AnalysisCheckpoint: Sendable, Codable, Equatable {
-    /// Assets already analyzed, including ones that failed analysis.
-    public var processedAssetIDs: Set<String>
-    public var candidates: [PhotoCandidate]
-
-    public init(processedAssetIDs: Set<String> = [], candidates: [PhotoCandidate] = []) {
-        self.processedAssetIDs = processedAssetIDs
-        self.candidates = candidates
-    }
-}
-
-public protocol CheckpointStore: Sendable {
-    func load() async throws -> AnalysisCheckpoint
-    func save(_ checkpoint: AnalysisCheckpoint) async throws
-    func clear() async throws
-}
-
-public actor InMemoryCheckpointStore: CheckpointStore {
-    public private(set) var checkpoint: AnalysisCheckpoint
-    public private(set) var saveCount = 0
-
-    public init(_ checkpoint: AnalysisCheckpoint = AnalysisCheckpoint()) {
-        self.checkpoint = checkpoint
-    }
-
-    public func load() -> AnalysisCheckpoint { checkpoint }
-
-    public func save(_ checkpoint: AnalysisCheckpoint) {
-        self.checkpoint = checkpoint
-        saveCount += 1
-    }
-
-    public func clear() { checkpoint = AnalysisCheckpoint() }
-}
-
-/// JSON file store. Writes are atomic, so a kill mid-write keeps the previous checkpoint.
-/// Protection allows reads while locked after first unlock, because background tasks run on a locked device.
-public actor FileCheckpointStore: CheckpointStore {
-    private let url: URL
-
-    public init(url: URL) {
-        self.url = url
-    }
-
-    public func load() throws -> AnalysisCheckpoint {
-        guard FileManager.default.fileExists(atPath: url.path) else { return AnalysisCheckpoint() }
-        return try JSONDecoder().decode(AnalysisCheckpoint.self, from: Data(contentsOf: url))
-    }
-
-    public func save(_ checkpoint: AnalysisCheckpoint) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(checkpoint).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-    }
-
-    public func clear() throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-    }
-}
-
 public struct AnalysisRunResult: Sendable, Equatable {
-    /// `true` when every fetched asset is processed.
+    /// `true` when every new or changed asset is processed.
     public var isComplete: Bool
     public var analyzedThisRun: Int
+    /// New or changed assets found at the start of the run.
+    public var pendingAtStart: Int
+    /// Analyzed candidates of the assets in this run's window, from the cache.
     public var candidates: [PhotoCandidate]
 }
 
-/// Analyzes recent photos one by one and saves a checkpoint after each photo,
+/// Progress of one run, for UI such as a `BGContinuedProcessingTask`.
+public struct AnalysisProgress: Sendable, Equatable {
+    public var completed: Int
+    public var total: Int
+}
+
+/// Analyzes only new or changed photos. Each result goes to the analysis cache,
 /// so an interrupted background task loses no finished work.
 public actor AnalysisQueue {
     private let library: PhotoLibrary
     private let analyzer: ImageAnalyzer
-    private let store: CheckpointStore
+    private let cache: AnalysisCacheStore
+    private var isRunning = false
 
-    public init(library: PhotoLibrary, analyzer: ImageAnalyzer, store: CheckpointStore) {
+    public init(library: PhotoLibrary, analyzer: ImageAnalyzer, cache: AnalysisCacheStore) {
         self.library = library
         self.analyzer = analyzer
-        self.store = store
+        self.cache = cache
     }
 
+    /// Assets without a record, or with a record of an older revision.
+    public func pendingAssets(_ assets: [PhotoAsset]) async throws -> [PhotoAsset] {
+        let records = try await cache.records()
+        return assets.filter { records[$0.id]?.revision != $0.revision }
+    }
+
+    /// Fetches photos since `since`, analyzes the new or changed ones, and drops older records.
     /// Stops early when the task is cancelled or `shouldContinue` returns `false`.
     public func run(
         since: Date,
         limit: Int = 200,
-        shouldContinue: @Sendable () -> Bool = { true }
+        shouldContinue: @Sendable () -> Bool = { true },
+        progress: @Sendable (AnalysisProgress) -> Void = { _ in }
     ) async throws -> AnalysisRunResult {
-        var checkpoint = try await store.load()
         let assets = try await library.recentAssets(since: since, limit: limit)
-        let pending = assets.filter { !checkpoint.processedAssetIDs.contains($0.id) }
+        try await cache.prune(capturedBefore: since)
+        return try await analyze(assets, shouldContinue: shouldContinue, progress: progress)
+    }
+
+    /// Analyzes the given assets if they are new or changed. The library change observer calls this.
+    /// Returns an incomplete result without work when another run is active.
+    public func analyze(
+        _ assets: [PhotoAsset],
+        shouldContinue: @Sendable () -> Bool = { true },
+        progress: @Sendable (AnalysisProgress) -> Void = { _ in }
+    ) async throws -> AnalysisRunResult {
+        guard !isRunning else {
+            return AnalysisRunResult(isComplete: false, analyzedThisRun: 0, pendingAtStart: 0, candidates: [])
+        }
+        isRunning = true
+        defer { isRunning = false }
+
+        let pending = try await pendingAssets(assets)
         var analyzed = 0
+        var processed = 0
+        progress(AnalysisProgress(completed: 0, total: pending.count))
+
+        func result(complete: Bool) async throws -> AnalysisRunResult {
+            try await cache.flush()
+            let records = try await cache.records()
+            let candidates = assets.compactMap { records[$0.id]?.candidate }
+            return AnalysisRunResult(
+                isComplete: complete, analyzedThisRun: analyzed, pendingAtStart: pending.count, candidates: candidates
+            )
+        }
 
         for asset in pending {
             if Task.isCancelled || !shouldContinue() {
-                return AnalysisRunResult(isComplete: false, analyzedThisRun: analyzed, candidates: checkpoint.candidates)
+                return try await result(complete: false)
             }
-            if asset.isScreenshot {
-                // No need to load pixels for a photo we never suggest.
-                checkpoint.processedAssetIDs.insert(asset.id)
-            } else {
+            var candidate: PhotoCandidate?
+            if !asset.isScreenshot {
+                // Screenshots are never suggested, so their pixels are never loaded.
                 do {
-                    let signals = try await analyzer.analyze(asset)
-                    checkpoint.candidates.append(PhotoCandidate(asset: asset, signals: signals))
+                    candidate = PhotoCandidate(asset: asset, signals: try await analyzer.analyze(asset))
                     analyzed += 1
                 } catch is CancellationError {
-                    return AnalysisRunResult(isComplete: false, analyzedThisRun: analyzed, candidates: checkpoint.candidates)
+                    return try await result(complete: false)
                 } catch {
-                    // A broken asset must not block the queue forever.
+                    // A broken asset must not block the queue. It is retried when it changes.
                 }
-                checkpoint.processedAssetIDs.insert(asset.id)
             }
-            try await store.save(checkpoint)
+            try await cache.upsert(
+                AnalysisRecord(revision: asset.revision, captureDate: asset.captureDate, candidate: candidate),
+                for: asset.id
+            )
+            processed += 1
+            progress(AnalysisProgress(completed: processed, total: pending.count))
         }
+        return try await result(complete: true)
+    }
 
-        return AnalysisRunResult(isComplete: true, analyzedThisRun: analyzed, candidates: checkpoint.candidates)
+    /// Removes records of deleted assets.
+    public func forget(_ assetIDs: Set<String>) async throws {
+        try await cache.remove(assetIDs)
+    }
+
+    /// Metadata only, no pixels. Used for the place history.
+    public func metadata(since: Date, limit: Int) async throws -> [PhotoAsset] {
+        try await library.recentAssets(since: since, limit: limit)
     }
 }

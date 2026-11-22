@@ -69,21 +69,35 @@ public struct PhotoAsset: Sendable, Hashable, Codable, Identifiable {
     public var isScreenshot: Bool
     /// Photos from one burst share this value. Used to detect duplicates.
     public var burstIdentifier: String?
-    /// A coarse place key (for example, a rounded grid cell). Never raw coordinates.
+    /// A coarse place key (about 1 km grid cell). Never raw coordinates.
     public var locationBucket: String?
+    /// Last change in the library. A new value means the asset must be analyzed again.
+    public var modificationDate: Date?
+    /// The photo was edited in Photos or another app. Edited photos are less likely camera originals.
+    public var hasAdjustments: Bool
 
     public init(
         id: String,
         captureDate: Date,
         isScreenshot: Bool = false,
         burstIdentifier: String? = nil,
-        locationBucket: String? = nil
+        locationBucket: String? = nil,
+        modificationDate: Date? = nil,
+        hasAdjustments: Bool = false
     ) {
         self.id = id
         self.captureDate = captureDate
         self.isScreenshot = isScreenshot
         self.burstIdentifier = burstIdentifier
         self.locationBucket = locationBucket
+        self.modificationDate = modificationDate
+        self.hasAdjustments = hasAdjustments
+    }
+
+    /// Changes when the asset changes in a way that needs new analysis.
+    public var revision: String {
+        let modified = modificationDate.map { String($0.timeIntervalSince1970) } ?? "-"
+        return "\(modified)|\(hasAdjustments ? 1 : 0)"
     }
 }
 
@@ -92,6 +106,7 @@ public struct PhotoCandidate: Sendable, Hashable, Codable, Identifiable {
     public var captureDate: Date
     public var locationBucket: String?
     public var burstIdentifier: String?
+    public var hasAdjustments: Bool
     public var signals: AnalysisSignals
 
     public var id: String { assetID }
@@ -101,12 +116,14 @@ public struct PhotoCandidate: Sendable, Hashable, Codable, Identifiable {
         captureDate: Date,
         locationBucket: String? = nil,
         burstIdentifier: String? = nil,
+        hasAdjustments: Bool = false,
         signals: AnalysisSignals
     ) {
         self.assetID = assetID
         self.captureDate = captureDate
         self.locationBucket = locationBucket
         self.burstIdentifier = burstIdentifier
+        self.hasAdjustments = hasAdjustments
         self.signals = signals
     }
 
@@ -116,6 +133,7 @@ public struct PhotoCandidate: Sendable, Hashable, Codable, Identifiable {
             captureDate: asset.captureDate,
             locationBucket: asset.locationBucket,
             burstIdentifier: asset.burstIdentifier,
+            hasAdjustments: asset.hasAdjustments,
             signals: signals
         )
     }

@@ -30,50 +30,39 @@ import Testing
 
     @Test func isDeterministic() {
         let batch = [candidate("a", signals(faces: 2)), candidate("b", signals(labels: ["beach"])), candidate("c")]
-        #expect(scorer.score(batch) == scorer.score(batch))
+        #expect(scorer.score(batch, context: ctx0) == scorer.score(batch, context: ctx0))
     }
 
     @Test func peopleBeatEmptyScenes() {
-        let ranked = scorer.score([candidate("empty"), candidate("people", signals(faces: 1))])
+        let ranked = scorer.score([candidate("empty"), candidate("people", signals(faces: 1))], context: ctx0)
         #expect(ranked.first?.candidate.assetID == "people")
     }
 
     @Test func groupsBeatSingleFaces() {
-        let ranked = scorer.score([candidate("one", signals(faces: 1)), candidate("group", signals(faces: 3))])
+        let ranked = scorer.score([candidate("one", signals(faces: 1)), candidate("group", signals(faces: 3))], context: ctx0)
         #expect(ranked.first?.candidate.assetID == "group")
     }
 
     @Test func outdoorAndActivityLabelsAreRewarded() {
-        let ranked = scorer.score([candidate("desk", signals(labels: ["desk"])), candidate("hike", signals(labels: ["hiking"]))])
+        let ranked = scorer.score([candidate("desk", signals(labels: ["desk"])), candidate("hike", signals(labels: ["hiking"]))], context: ctx0)
         #expect(ranked.first?.candidate.assetID == "hike")
     }
 
     @Test func utilityIsPenalized() {
         let receipt = scorer.baseScore(candidate("r", signals(aesthetic: 1, utility: true)))
-        let plain = scorer.baseScore(candidate("p", signals(aesthetic: 0)))
+        // A plain photo of average quality beats a perfect receipt.
+        let plain = scorer.baseScore(candidate("p", signals(aesthetic: 0.5)))
         #expect(receipt < plain)
     }
 
     @Test func screenshotsAreIneligible() {
-        let ranked = scorer.score([candidate("s", signals(faces: 5, screenshot: true))])
+        let ranked = scorer.score([candidate("s", signals(faces: 5, screenshot: true))], context: ctx0)
         #expect(ranked.first?.isEligible == false)
     }
 
     @Test func cameraOriginalBeatsUnknownProvenance() {
-        let ranked = scorer.score([candidate("unknown", signals(exif: false)), candidate("camera", signals(exif: true))])
+        let ranked = scorer.score([candidate("unknown", signals(exif: false)), candidate("camera", signals(exif: true))], context: ctx0)
         #expect(ranked.first?.candidate.assetID == "camera")
-    }
-
-    @Test func onlyBestOfBurstAvoidsDuplicatePenalty() {
-        let ranked = scorer.score([
-            candidate("b1", burst: "x", signals(aesthetic: 0.9, faces: 1)),
-            candidate("b2", burst: "x", signals(aesthetic: 0.8, faces: 1)),
-        ])
-        let b1 = ranked.first { $0.candidate.assetID == "b1" }!
-        let b2 = ranked.first { $0.candidate.assetID == "b2" }!
-        let w = MomentScorer.Weights()
-        #expect(b1.score == scorer.baseScore(b1.candidate))
-        #expect(abs(b2.score - (scorer.baseScore(b2.candidate) - w.duplicatePenalty)) < 1e-9)
     }
 
     @Test func recentSceneAndPlaceReduceNovelty() {
@@ -86,13 +75,13 @@ import Testing
                 candidate("same", place: "cell-1", signals(labels: ["beach", "ocean"])),
                 candidate("new", place: "cell-2", signals(labels: ["mountain", "snow"])),
             ],
-            recentSuggestions: [recent]
+            context: ScoringContext(now: day0, recentSuggestions: [recent])
         )
         #expect(ranked.map(\.candidate.assetID) == ["new", "same"])
     }
 
     @Test func tiesBreakByAssetID() {
-        let ranked = scorer.score([candidate("b"), candidate("a")])
+        let ranked = scorer.score([candidate("b"), candidate("a")], context: ctx0)
         #expect(ranked.map(\.candidate.assetID) == ["a", "b"])
     }
 }

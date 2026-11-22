@@ -3,7 +3,7 @@ import Testing
 @testable import CandidCore
 
 @Suite struct SuggestionEngineTests {
-    let engine = SuggestionEngine(policy: SuggestionPolicy(dailyCap: 1, cooldown: 6 * 3600, minimumScore: 0.3), calendar: utcCalendar)
+    let engine = SuggestionEngine(policy: SuggestionPolicy(dailyCap: 1, cooldown: 6 * 3600, minimumScore: 0.55), calendar: utcCalendar)
     let scorer = MomentScorer()
 
     var batch: [ScoredCandidate] {
@@ -12,7 +12,7 @@ import Testing
             candidate("second", signals(aesthetic: 0.7, faces: 1)),
             candidate("weak", signals(aesthetic: 0.1, exif: false)),
             candidate("shot", signals(aesthetic: 1, faces: 3, screenshot: true)),
-        ])
+        ], context: ctx0)
     }
 
     @Test func picksExactlyTheTopEligibleCandidate() {
@@ -22,12 +22,12 @@ import Testing
     }
 
     @Test func neverPicksScreenshots() {
-        let only = scorer.score([candidate("shot", signals(aesthetic: 1, faces: 3, screenshot: true))])
+        let only = scorer.score([candidate("shot", signals(aesthetic: 1, faces: 3, screenshot: true))], context: ctx0)
         #expect(engine.pick(from: only, history: SuggestionHistory(), now: day0) == nil)
     }
 
     @Test func ignoresCandidatesBelowMinimumScore() {
-        let only = scorer.score([candidate("weak", signals(aesthetic: 0.1, exif: false))])
+        let only = scorer.score([candidate("weak", signals(aesthetic: 0.1, exif: false))], context: ctx0)
         #expect(engine.pick(from: only, history: SuggestionHistory(), now: day0) == nil)
     }
 
@@ -67,7 +67,7 @@ import Testing
     }
 
     @Test func higherDailyCapAllowsMore() {
-        let relaxed = SuggestionEngine(policy: SuggestionPolicy(dailyCap: 2, cooldown: 0, minimumScore: 0.3), calendar: utcCalendar)
+        let relaxed = SuggestionEngine(policy: SuggestionPolicy(dailyCap: 2, cooldown: 0, minimumScore: 0.55), calendar: utcCalendar)
         let start = utcCalendar.startOfDay(for: day0)
         var first = relaxed.pick(from: batch, history: SuggestionHistory(), now: start)!
         first.decision = .share
