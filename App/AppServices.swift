@@ -14,6 +14,12 @@ enum AppInfo {
 
     static var analysisTaskID: String { bundleID + ".analysis" }
 
+    /// Info.plist sets this to `iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)`, the same value as the entitlements.
+    /// A rename changes only project.yml. A container id cannot be renamed later in CloudKit.
+    static var cloudKitContainerID: String {
+        Bundle.main.object(forInfoDictionaryKey: "CloudKitContainerIdentifier") as? String ?? "iCloud." + bundleID
+    }
+
     /// Sandboxed per app, so no app-specific subfolder is needed.
     static var dataDirectory: URL { URL.applicationSupportDirectory }
 }
@@ -50,21 +56,28 @@ actor HistoryStore {
 struct AppServices: Sendable {
     let library: PhotoKitLibrary
     let analyzer: VisionImageAnalyzer
+    let sharing: CloudKitSharing
     let shareService: any ShareService
     let friends: any FriendDirectory
+    let alerts: any FriendAlertChannel
     let notifier: LocalNotifier
     let checkpoints: FileCheckpointStore
     let history: HistoryStore
 
-    static let live = AppServices(
-        library: PhotoKitLibrary(),
-        analyzer: VisionImageAnalyzer(),
-        shareService: CloudKitShareService(),
-        friends: CloudKitFriendDirectory(),
-        notifier: LocalNotifier(),
-        checkpoints: FileCheckpointStore(url: AppInfo.dataDirectory.appending(path: "checkpoint.json")),
-        history: HistoryStore()
-    )
+    static let live: AppServices = {
+        let sharing = CloudKitSharing()
+        return AppServices(
+            library: PhotoKitLibrary(),
+            analyzer: VisionImageAnalyzer(),
+            sharing: sharing,
+            shareService: CloudKitShareService(sharing: sharing),
+            friends: CloudKitFriendDirectory(sharing: sharing),
+            alerts: CloudKitFriendAlerts(container: sharing.container),
+            notifier: LocalNotifier(),
+            checkpoints: FileCheckpointStore(url: AppInfo.dataDirectory.appending(path: "checkpoint.json")),
+            history: HistoryStore()
+        )
+    }()
 
     func makePipeline() -> SuggestionPipeline {
         SuggestionPipeline(
@@ -84,6 +97,8 @@ struct AppServices: Sendable {
 
     func deleteAllLocalAndSharedData() async throws {
         try await shareService.deleteAllData()
+        try await friends.reset()
+        try? await alerts.tearDown()
         try await checkpoints.clear()
         try await history.clear()
     }

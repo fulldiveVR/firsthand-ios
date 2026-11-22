@@ -17,7 +17,7 @@ struct SettingsView: View {
                 Section {
                     Button("Delete All Data", role: .destructive) { confirmDelete = true }
                 } footer: {
-                    Text("Removes your suggestions, analysis progress and everything you shared. Your photo library is not changed.")
+                    Text("Removes your suggestions, analysis progress, everything you shared and your friend connections. Your photo library is not changed.")
                 }
                 #if DEBUG
                 Section("Debug") {
