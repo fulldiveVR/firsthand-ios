@@ -14,6 +14,9 @@ enum AppInfo {
 
     static var analysisTaskID: String { bundleID + ".analysis" }
 
+    /// Matches the `<bundle id>.firstscan.*` wildcard in Info.plist.
+    static var firstScanTaskID: String { bundleID + ".firstscan.onboarding" }
+
     /// Sandboxed per app, so no app-specific subfolder is needed.
     static var dataDirectory: URL { URL.applicationSupportDirectory }
 }
@@ -49,42 +52,84 @@ actor HistoryStore {
 
 struct AppServices: Sendable {
     let library: PhotoKitLibrary
-    let analyzer: VisionImageAnalyzer
     let shareService: any ShareService
     let friends: any FriendDirectory
     let notifier: LocalNotifier
-    let checkpoints: FileCheckpointStore
+    let analysisCache: FileAnalysisCache
+    /// One queue per process, so the observer and background tasks never analyze the same photo twice at once.
+    let queue: AnalysisQueue
+    let captioner: OnDeviceCaptioner
     let history: HistoryStore
+    let observer: PhotoLibraryObserver
 
-    static let live = AppServices(
-        library: PhotoKitLibrary(),
-        analyzer: VisionImageAnalyzer(),
-        shareService: CloudKitShareService(),
-        friends: CloudKitFriendDirectory(),
-        notifier: LocalNotifier(),
-        checkpoints: FileCheckpointStore(url: AppInfo.dataDirectory.appending(path: "checkpoint.json")),
-        history: HistoryStore()
-    )
+    /// How far back photos are analyzed and suggested.
+    static let lookback: TimeInterval = 3 * 24 * 60 * 60
+
+    static let live: AppServices = {
+        let library = PhotoKitLibrary()
+        let cache = FileAnalysisCache(url: AppInfo.dataDirectory.appending(path: "analysis-cache.json"))
+        let queue = AnalysisQueue(library: library, analyzer: VisionImageAnalyzer(), cache: cache)
+        return AppServices(
+            library: library,
+            shareService: CloudKitShareService(),
+            friends: CloudKitFriendDirectory(),
+            notifier: LocalNotifier(),
+            analysisCache: cache,
+            queue: queue,
+            captioner: OnDeviceCaptioner(),
+            history: HistoryStore(),
+            observer: PhotoLibraryObserver(lookback: lookback) { delta in
+                Task { await handleLibraryChange(delta, queue: queue) }
+            }
+        )
+    }()
 
     func makePipeline() -> SuggestionPipeline {
-        SuggestionPipeline(
-            queue: AnalysisQueue(library: library, analyzer: analyzer, store: checkpoints),
-            notifier: notifier
-        )
+        SuggestionPipeline(queue: queue, notifier: notifier, captioner: captioner, lookback: Self.lookback)
+    }
+
+    /// Analyzes only new or changed photos right away. Choosing a suggestion waits for the next pass,
+    /// so a photo taken a minute ago does not interrupt the user.
+    private static func handleLibraryChange(_ delta: PhotoLibraryDelta, queue: AnalysisQueue) async {
+        try? await queue.forget(delta.removedIDs)
+        let since = Date(timeIntervalSinceNow: -lookback)
+        _ = try? await queue.analyze(delta.updated.filter { $0.captureDate >= since })
+    }
+
+    /// Call when photo access allows reading.
+    func startObservingLibrary() {
+        observer.start()
     }
 
     /// Runs one analysis pass and stores a new suggestion, if any.
     func runAnalysis(shouldContinue: @escaping @Sendable () -> Bool = { true }) async throws -> Suggestion? {
+        try await runPass(shouldContinue: shouldContinue, progress: { _ in })?.suggestion
+    }
+
+    /// The onboarding scan: the same pass, with progress for the UI.
+    func runFirstScan(
+        shouldContinue: @escaping @Sendable () -> Bool = { true },
+        progress: @escaping @Sendable (AnalysisProgress) -> Void
+    ) async throws -> PipelineOutcome? {
+        try await runPass(shouldContinue: shouldContinue, progress: progress)
+    }
+
+    private func runPass(
+        shouldContinue: @escaping @Sendable () -> Bool,
+        progress: @escaping @Sendable (AnalysisProgress) -> Void
+    ) async throws -> PipelineOutcome? {
         // Limited access shows only photos the user picked, so there is nothing new to find.
         guard await library.authorizationStatus() == .authorized else { return nil }
-        let suggestion = try await makePipeline().run(history: await history.load(), shouldContinue: shouldContinue)
-        if let suggestion { try await history.append(suggestion) }
-        return suggestion
+        let outcome = try await makePipeline().runWithOutcome(
+            history: await history.load(), shouldContinue: shouldContinue, progress: progress
+        )
+        if let suggestion = outcome.suggestion { try await history.append(suggestion) }
+        return outcome
     }
 
     func deleteAllLocalAndSharedData() async throws {
         try await shareService.deleteAllData()
-        try await checkpoints.clear()
+        try await analysisCache.clear()
         try await history.clear()
     }
 }

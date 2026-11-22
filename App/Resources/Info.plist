@@ -29,6 +29,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).analysis</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).firstscan.*</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

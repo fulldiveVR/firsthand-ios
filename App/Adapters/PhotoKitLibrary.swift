@@ -15,6 +15,33 @@ struct PhotoKitLibrary: PhotoLibrary {
     }
 
     func recentAssets(since: Date, limit: Int) async throws -> [PhotoAsset] {
+        let result = PHAsset.fetchAssets(with: Self.recentImagesOptions(since: since, limit: limit))
+
+        var assets: [PhotoAsset] = []
+        assets.reserveCapacity(result.count)
+        for index in 0..<result.count {
+            assets.append(Self.photoAsset(result.object(at: index)))
+        }
+        return assets
+    }
+
+    /// Metadata only. All reads are cached `PHAsset` properties, no file or network access.
+    static func photoAsset(_ asset: PHAsset) -> PhotoAsset {
+        PhotoAsset(
+            id: asset.localIdentifier,
+            captureDate: asset.creationDate ?? .distantPast,
+            isScreenshot: asset.mediaSubtypes.contains(.photoScreenshot),
+            burstIdentifier: asset.burstIdentifier,
+            // The precise coordinate is used only here and never stored.
+            locationBucket: asset.location.map { bucket($0.coordinate) },
+            modificationDate: asset.modificationDate,
+            // `hasAdjustments` (iOS 15+) is a cheap property. No adjustment data is loaded.
+            hasAdjustments: asset.hasAdjustments
+        )
+    }
+
+    /// Images since `since`, newest first. `limit` 0 means no limit.
+    static func recentImagesOptions(since: Date, limit: Int = 0) -> PHFetchOptions {
         let options = PHFetchOptions()
         options.predicate = NSPredicate(
             format: "creationDate >= %@ AND mediaType == %d",
@@ -23,21 +50,7 @@ struct PhotoKitLibrary: PhotoLibrary {
         )
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.fetchLimit = limit
-        let result = PHAsset.fetchAssets(with: options)
-
-        var assets: [PhotoAsset] = []
-        assets.reserveCapacity(result.count)
-        for index in 0..<result.count {
-            let asset = result.object(at: index)
-            assets.append(PhotoAsset(
-                id: asset.localIdentifier,
-                captureDate: asset.creationDate ?? .distantPast,
-                isScreenshot: asset.mediaSubtypes.contains(.photoScreenshot),
-                burstIdentifier: asset.burstIdentifier,
-                locationBucket: asset.location.map { Self.bucket($0.coordinate) }
-            ))
-        }
-        return assets
+        return options
     }
 
     func imageData(for assetID: String) async throws -> Data? {
@@ -74,12 +87,13 @@ struct PhotoKitLibrary: PhotoLibrary {
         PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
     }
 
-    /// About 5 km grid cells. Coarse on purpose: novelty needs "same place", not coordinates.
+    /// Grid cells of 0.01 degree: about 1.1 km north-south, less east-west far from the equator.
+    /// Coarse on purpose: "new place" needs "same area", not coordinates. Only the cell index is kept.
     static func bucket(_ c: CLLocationCoordinate2D) -> String {
-        let step = 0.05
-        let lat = (c.latitude / step).rounded(.down) * step
-        let lon = (c.longitude / step).rounded(.down) * step
-        return String(format: "%.2f,%.2f", lat, lon)
+        let step = 0.01
+        let lat = Int((c.latitude / step).rounded(.down))
+        let lon = Int((c.longitude / step).rounded(.down))
+        return "\(lat):\(lon)"
     }
 
     static func map(_ status: PHAuthorizationStatus) -> PhotoAuthorization {

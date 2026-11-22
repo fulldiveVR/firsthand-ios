@@ -26,25 +26,37 @@ Domain logic tests run on macOS without Xcode:
 cd Packages/CandidCore && swift test
 ```
 
+With Command Line Tools only (no Xcode), `swift test` may not find the Swift Testing macros. Pass the plugin path:
+
+```sh
+swift test -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
+```
+
 ## Architecture
 
 ```
 project.yml                 XcodeGen spec. App name and bundle id live here.
 App/                        SwiftUI iOS app
   CandidApp.swift           entry point, BGTaskScheduler registration
-  AnalysisScheduler.swift   BGProcessingTask: external power, no network
+  AnalysisScheduler.swift   BGProcessingTask (external power) and the first scan (BGContinuedProcessingTask)
   AppModel.swift            UI state, Share (Face ID) and Skip
   AppServices.swift         wiring of real adapters, history file
-  Adapters/                 PhotoKit, Vision, notifications, LocalAuthentication, CloudKit stub
+  Adapters/                 PhotoKit and its change observer, Vision, on-device caption (Foundation Models),
+                            notifications, LocalAuthentication, CloudKit stub
   Views/                    Onboarding, Today, Feed, Friends, Settings
   Resources/                Info.plist, entitlements
 Packages/CandidCore/        pure Swift package, tested on macOS
   Models.swift              PhotoCandidate, AnalysisSignals, ProvenanceStatus, Suggestion, Friend, Post
   Protocols.swift           PhotoLibrary, ImageAnalyzer, ShareService, FriendDirectory, Notifier, Clock
-  MomentScorer.swift        deterministic scoring
-  SuggestionEngine.swift    one suggestion, daily cap, cooldown, no repeats
-  AnalysisQueue.swift       resumable queue with per-photo checkpoints
-  SuggestionPipeline.swift  analyze, score, pick, notify
+  MomentScorer.swift        deterministic scoring, all weights in one struct
+  MomentGrouping.swift      moments by time gap and place, burst and near-duplicate collapse
+  MomentRanker.swift        best photo per moment, then the best moment
+  PlaceHistory.swift        "new place" from coarse location buckets
+  SuggestionEngine.swift    one suggestion per day, quality threshold, cooldown, no repeats
+  AnalysisCache.swift       per-asset analysis cache (in-memory and file)
+  AnalysisQueue.swift       analyzes only new or changed photos
+  Captioning.swift          optional caption protocol
+  SuggestionPipeline.swift  analyze, rank moments, pick, caption, notify
   Fakes.swift               in-memory ShareService and FriendDirectory
 ```
 

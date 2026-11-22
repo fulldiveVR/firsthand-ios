@@ -24,11 +24,39 @@ struct OnboardingView: View {
 
             if model.appleUserID == nil {
                 SignInWithAppleView()
-            } else {
+            } else if !model.photoAccess.canRead {
                 photoAccessStep
+            } else {
+                firstScanStep
             }
         }
         .padding(24)
+    }
+
+    @ViewBuilder
+    private var firstScanStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch model.firstScan {
+            case .notStarted:
+                Text("\(AppInfo.name) looks at your photos from the last few days on this iPhone. You can leave the app while it works.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Find my moments") { model.startFirstScan() }
+                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity)
+            case .scanning(let completed, let total):
+                if total > 0 {
+                    ProgressView(value: Double(completed), total: Double(total)) {
+                        Text("Finding your moments")
+                    } currentValueLabel: {
+                        Text("\(completed) of \(total) photos")
+                    }
+                } else {
+                    ProgressView("Finding your moments")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
     }
 
     @ViewBuilder
