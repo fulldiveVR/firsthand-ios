@@ -28,17 +28,30 @@ public protocol ImageAnalyzer: Sendable {
 public protocol ShareService: Sendable {
     /// Publishes one approved photo to the given friends only.
     func share(_ suggestion: Suggestion, imageData: Data, with friendIDs: [Friend.ID]) async throws -> Post
-    /// Posts that friends shared with this user.
+    /// Posts that friends shared with this user, newest first. Fetches changes since the last call.
     func feed() async throws -> [Post]
-    /// Removes everything this user published.
+    /// Posts this user published, newest first.
+    func myPosts() async throws -> [Post]
+    /// Deletes one of this user's posts. Friends lose it on their next sync.
+    func deletePost(_ id: Post.ID) async throws
+    /// Removes everything this user published and every local copy of friends' posts.
     func deleteAllData() async throws
 }
 
 public protocol FriendDirectory: Sendable {
     func friends() async throws -> [Friend]
-    /// Returns a link the user can send to invite a friend.
+    /// Both sides of every friendship, matched with CloudKit.
+    func friendships() async throws -> [Friendship]
+    /// Returns the link of this user's share. Only participants can open it.
     func makeInviteURL() async throws -> URL
+    /// Adds a participant to this user's share and returns the link to send. Throws at the friend cap.
+    func invite(_ contact: InviteContact) async throws -> URL
+    /// After this user accepted a friend's share: adds that friend to this user's share and returns the link.
+    func shareBack(with friendID: Friend.ID) async throws -> URL
+    /// Removes the friend from this user's share and leaves the friend's share.
     func remove(_ friendID: Friend.ID) async throws
+    /// Forgets all local friend state, for "Delete all data".
+    func reset() async throws
 }
 
 public protocol Notifier: Sendable {
