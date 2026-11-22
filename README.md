@@ -4,6 +4,11 @@ An iPhone AI that finds meaningful moments and suggests a camera-original photo 
 
 Status: **draft**. Codename, may be renamed. CloudKit sharing is a stub.
 
+## Docs
+
+- [Implementation plan](docs/implementation-plan.md)
+- [Market research](docs/market-research.md)
+
 ## Build
 
 Requires Xcode 26 or later and an iPhone with iOS 18 or later.
