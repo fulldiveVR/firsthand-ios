@@ -11,7 +11,7 @@ Status: **draft**. Codename, may be renamed. CloudKit sharing is a stub.
 
 ## Build
 
-Requires Xcode 26 or later and an iPhone with iOS 18 or later.
+Requires Xcode 26 or later and an iPhone with iOS 26 or later.
 
 ```sh
 brew install xcodegen && xcodegen generate
