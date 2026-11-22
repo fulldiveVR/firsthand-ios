@@ -22,7 +22,7 @@ targets:
       - package: FirsthandCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.firsthand
+        PRODUCT_BUNDLE_IDENTIFIER: com.fulldive.firsthand
         INFOPLIST_FILE: App/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: App/Resources/Firsthand.entitlements

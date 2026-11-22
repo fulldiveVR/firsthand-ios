@@ -10,7 +10,7 @@ enum AppInfo {
             ?? "App"
     }
 
-    static var bundleID: String { Bundle.main.bundleIdentifier ?? "com.example.firsthand" }
+    static var bundleID: String { Bundle.main.bundleIdentifier ?? "com.fulldive.firsthand" }
 
     static var analysisTaskID: String { bundleID + ".analysis" }
 
