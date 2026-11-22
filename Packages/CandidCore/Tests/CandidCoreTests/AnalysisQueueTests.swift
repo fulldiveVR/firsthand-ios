@@ -152,7 +152,9 @@ import Testing
             clock: FixedClock(day0.addingTimeInterval(3600))
         )
         let budget = Budget(1)
-        #expect(try await pipeline.run(history: SuggestionHistory(), shouldContinue: { budget.take() }) == nil)
+        let partial = try await pipeline.runWithOutcome(history: SuggestionHistory(), shouldContinue: { budget.take() })
+        #expect(partial.suggestion == nil)
+        #expect(!partial.analysis.isComplete)
         #expect(await notifier.notified.isEmpty)
 
         let suggestion = try await pipeline.run(history: SuggestionHistory())

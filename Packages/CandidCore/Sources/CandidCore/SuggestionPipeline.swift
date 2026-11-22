@@ -1,5 +1,11 @@
 import Foundation
 
+public struct PipelineOutcome: Sendable {
+    public var analysis: AnalysisRunResult
+    /// `nil` when the analysis is incomplete or no moment passed the threshold.
+    public var suggestion: Suggestion?
+}
+
 /// One background run: analyze new photos, group into moments, pick at most one suggestion, caption, notify.
 public struct SuggestionPipeline: Sendable {
     public var queue: AnalysisQueue
@@ -39,10 +45,19 @@ public struct SuggestionPipeline: Sendable {
         shouldContinue: @Sendable () -> Bool = { true },
         progress: @Sendable (AnalysisProgress) -> Void = { _ in }
     ) async throws -> Suggestion? {
+        try await runWithOutcome(history: history, shouldContinue: shouldContinue, progress: progress).suggestion
+    }
+
+    /// Like `run`, and also returns the analysis result, for progress UI.
+    public func runWithOutcome(
+        history: SuggestionHistory,
+        shouldContinue: @Sendable () -> Bool = { true },
+        progress: @Sendable (AnalysisProgress) -> Void = { _ in }
+    ) async throws -> PipelineOutcome {
         let now = clock.now
         let since = now.addingTimeInterval(-lookback)
         let result = try await queue.run(since: since, shouldContinue: shouldContinue, progress: progress)
-        guard result.isComplete else { return nil }
+        guard result.isComplete else { return PipelineOutcome(analysis: result, suggestion: nil) }
 
         let placeWindow = ranker.scorer.weights.newPlaceWindow
         let places = PlaceHistory(assets: try await queue.metadata(since: since.addingTimeInterval(-placeWindow), limit: placeHistoryLimit))
@@ -54,12 +69,14 @@ public struct SuggestionPipeline: Sendable {
         let moments = ranker.rank(
             result.candidates, context: context, excludedAssetIDs: Set(history.suggestions.map(\.assetID))
         )
-        guard var suggestion = engine.pick(from: moments, history: history, now: now) else { return nil }
+        guard var suggestion = engine.pick(from: moments, history: history, now: now) else {
+            return PipelineOutcome(analysis: result, suggestion: nil)
+        }
 
         if let captioner, let moment = moments.first(where: { $0.best.candidate.assetID == suggestion.assetID }) {
             suggestion.caption = await captioner.caption(for: CaptionContext(moment))
         }
         await notifier.notifySuggestionReady(suggestion)
-        return suggestion
+        return PipelineOutcome(analysis: result, suggestion: suggestion)
     }
 }
