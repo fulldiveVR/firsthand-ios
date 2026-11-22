@@ -16,6 +16,11 @@ enum AppInfo {
 
     /// Matches the `<bundle id>.firstscan.*` wildcard in Info.plist.
     static var firstScanTaskID: String { bundleID + ".firstscan.onboarding" }
+    /// Info.plist sets this to `iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)`, the same value as the entitlements.
+    /// A rename changes only project.yml. A container id cannot be renamed later in CloudKit.
+    static var cloudKitContainerID: String {
+        Bundle.main.object(forInfoDictionaryKey: "CloudKitContainerIdentifier") as? String ?? "iCloud." + bundleID
+    }
 
     /// Sandboxed per app, so no app-specific subfolder is needed.
     static var dataDirectory: URL { URL.applicationSupportDirectory }
@@ -52,8 +57,10 @@ actor HistoryStore {
 
 struct AppServices: Sendable {
     let library: PhotoKitLibrary
+    let sharing: CloudKitSharing
     let shareService: any ShareService
     let friends: any FriendDirectory
+    let alerts: any FriendAlertChannel
     let notifier: LocalNotifier
     let analysisCache: FileAnalysisCache
     /// One queue per process, so the observer and background tasks never analyze the same photo twice at once.
@@ -69,10 +76,13 @@ struct AppServices: Sendable {
         let library = PhotoKitLibrary()
         let cache = FileAnalysisCache(url: AppInfo.dataDirectory.appending(path: "analysis-cache.json"))
         let queue = AnalysisQueue(library: library, analyzer: VisionImageAnalyzer(), cache: cache)
+        let sharing = CloudKitSharing()
         return AppServices(
             library: library,
-            shareService: CloudKitShareService(),
-            friends: CloudKitFriendDirectory(),
+            sharing: sharing,
+            shareService: CloudKitShareService(sharing: sharing),
+            friends: CloudKitFriendDirectory(sharing: sharing),
+            alerts: CloudKitFriendAlerts(container: sharing.container),
             notifier: LocalNotifier(),
             analysisCache: cache,
             queue: queue,
@@ -129,6 +139,8 @@ struct AppServices: Sendable {
 
     func deleteAllLocalAndSharedData() async throws {
         try await shareService.deleteAllData()
+        try await friends.reset()
+        try? await alerts.tearDown()
         try await analysisCache.clear()
         try await history.clear()
     }

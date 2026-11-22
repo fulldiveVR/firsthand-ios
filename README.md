@@ -2,7 +2,7 @@
 
 An iPhone AI that finds meaningful moments and suggests a camera-original photo to share with your approved friends, only when you say yes.
 
-Status: **draft**. Codename, may be renamed. CloudKit sharing is a stub.
+Status: **draft**. Codename, may be renamed. CloudKit sharing (P3) is written but not yet run on devices.
 
 ## Docs
 
@@ -41,8 +41,9 @@ App/                        SwiftUI iOS app
   AnalysisScheduler.swift   BGProcessingTask (external power) and the first scan (BGContinuedProcessingTask)
   AppModel.swift            UI state, Share (Face ID) and Skip
   AppServices.swift         wiring of real adapters, history file
+  AppDelegate.swift         share-link accept (scene delegate), friend pushes
   Adapters/                 PhotoKit and its change observer, Vision, on-device caption (Foundation Models),
-                            notifications, LocalAuthentication, CloudKit stub
+                            notifications, LocalAuthentication, CloudKit sharing
   Views/                    Onboarding, Today, Feed, Friends, Settings
   Resources/                Info.plist, entitlements
 Packages/CandidCore/        pure Swift package, tested on macOS
@@ -57,6 +58,11 @@ Packages/CandidCore/        pure Swift package, tested on macOS
   AnalysisQueue.swift       analyzes only new or changed photos
   Captioning.swift          optional caption protocol
   SuggestionPipeline.swift  analyze, rank moments, pick, caption, notify
+  Friendship.swift          friendship state machine, roster, cap of 50
+  FeedState.swift           feed merge: dedupe, newest first, deletions
+  ChangeTokenStore.swift    CloudKit change tokens, in-memory and file
+  PostPayload.swift         upload rules: 2048 px, HEIC/JPEG, metadata strip, labels
+  SharingSupport.swift      invite contact parsing, FriendAlertChannel
   Fakes.swift               in-memory ShareService and FriendDirectory
 ```
 

@@ -28,7 +28,14 @@ public actor InMemoryShareService: ShareService {
 
     public func feed() -> [Post] { Post.chronological(incoming) }
 
-    public func deleteAllData() { published.removeAll() }
+    public func myPosts() -> [Post] { Post.chronological(published) }
+
+    public func deletePost(_ id: Post.ID) { published.removeAll { $0.id == id } }
+
+    public func deleteAllData() {
+        published.removeAll()
+        incoming.removeAll()
+    }
 }
 
 public enum ShareError: Error, Equatable {
@@ -37,18 +44,53 @@ public enum ShareError: Error, Equatable {
     case notImplemented
 }
 
+/// In-memory `FriendDirectory` on top of `FriendRoster`. Invites by contact use the contact as friend id.
 public actor InMemoryFriendDirectory: FriendDirectory {
-    private var list: [Friend]
+    public private(set) var roster: FriendRoster
+    public static let inviteURL = URL(string: "https://example.com/invite")!
 
-    public init(_ friends: [Friend] = []) {
-        list = friends
+    public init(_ friends: [Friend] = [], limit: Int = FriendRoster.defaultLimit) {
+        roster = FriendRoster(
+            friends.map {
+                $0.status == .accepted
+                    ? Friendship(id: $0.id, displayName: $0.displayName, outgoing: .accepted, incoming: .accepted)
+                    : Friendship(id: $0.id, displayName: $0.displayName, outgoing: .invited)
+            },
+            limit: limit
+        )
     }
 
-    public func friends() -> [Friend] { list }
+    public func friends() -> [Friend] { roster.active.map(\.asFriend) }
 
-    public func makeInviteURL() -> URL { URL(string: "https://example.com/invite")! }
+    public func friendships() -> [Friendship] { roster.friendships }
 
-    public func remove(_ friendID: Friend.ID) { list.removeAll { $0.id == friendID } }
+    public func makeInviteURL() -> URL { Self.inviteURL }
+
+    public func invite(_ contact: InviteContact) throws -> URL {
+        let id = switch contact {
+        case .email(let v), .phone(let v): v
+        }
+        try roster.apply(.sentInvite, to: id, displayName: id)
+        return Self.inviteURL
+    }
+
+    public func shareBack(with friendID: Friend.ID) throws -> URL {
+        guard roster[friendID] != nil else { throw FriendshipError.unknownFriend(friendID) }
+        try roster.apply(.sentInvite, to: friendID)
+        return Self.inviteURL
+    }
+
+    /// Test hook: simulates a CloudKit event for one friend.
+    public func simulate(_ event: FriendshipEvent, for friendID: Friend.ID, displayName: String = "") throws {
+        try roster.apply(event, to: friendID, displayName: displayName)
+    }
+
+    public func remove(_ friendID: Friend.ID) throws {
+        guard roster[friendID] != nil else { throw FriendshipError.unknownFriend(friendID) }
+        try roster.apply(.iRemoved, to: friendID)
+    }
+
+    public func reset() { roster.removeAll() }
 }
 
 public struct FixedClock: Clock {
