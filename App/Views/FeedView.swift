@@ -57,11 +57,7 @@ private struct PostRow: View {
             if let caption = post.caption {
                 Text(caption)
             }
-            HStack {
-                ProvenanceLabel(status: post.provenance)
-                Spacer()
-                ExpiryLabel(post: post)
-            }
+            ExpiryLabel(post: post)
         }
         .padding(.vertical, 8)
     }

@@ -6,6 +6,7 @@ import SwiftUI
 /// Friends and Profile open as sheets from the toolbar. There is no tab bar.
 struct MomentsView: View {
     @Environment(AppModel.self) private var model
+    @State private var confirmShare = false
 
     var body: some View {
         NavigationStack {
@@ -13,7 +14,7 @@ struct MomentsView: View {
                 VStack(alignment: .leading, spacing: Theme.Spacing.betweenSections) {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionHeader(title: "Today", subtitle: Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                        TodaySection()
+                        TodaySection(onShare: { _ in confirmShare = true })
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         SectionHeader(title: "From Friends")
@@ -27,6 +28,12 @@ struct MomentsView: View {
             .refreshable { await model.refreshSharing() }
             .navigationTitle("Moments")
             .toolbar { MomentsToolbar() }
+            .confirmationDialog("Share with your friends?", isPresented: $confirmShare, titleVisibility: .visible) {
+                Button("Share with Face ID") { Task { await model.share() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your friends can see this for 30 days. Then it disappears from their feed and your iCloud.")
+            }
         }
     }
 }
