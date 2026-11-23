@@ -334,6 +334,33 @@ actor CloudKitSharing {
         try saveMyPosts(mine)
     }
 
+    /// The 30-day rule, owner side. Deletes expired records from my zone in batches.
+    /// A record that is already gone counts as deleted.
+    func deleteExpiredPosts(now: Date) async throws -> Int {
+        let expired = PostExpiry.expiredOwnPosts(try await syncMyPosts(), ownerID: Self.ownOwnerID, now: now)
+        guard !expired.isEmpty else { return 0 }
+        var deleted: [FeedItemID] = []
+        let ids = expired.map { CKRecord.ID(recordName: $0.id.uuidString, zoneID: zoneID) }
+        for start in stride(from: 0, to: ids.count, by: 200) {
+            let batch = Array(ids[start..<min(start + 200, ids.count)])
+            let result = try await privateDB.modifyRecords(saving: [], deleting: batch)
+            for (id, outcome) in result.deleteResults {
+                switch outcome {
+                case .success:
+                    deleted.append(FeedItemID(ownerID: Self.ownOwnerID, recordName: id.recordName))
+                case .failure(let error) where (error as? CKError)?.code == .unknownItem:
+                    deleted.append(FeedItemID(ownerID: Self.ownOwnerID, recordName: id.recordName))
+                case .failure:
+                    break
+                }
+            }
+        }
+        var mine = loadMyPosts()
+        mine.apply(FeedChanges(deleted: deleted))
+        try saveMyPosts(mine)
+        return deleted.count
+    }
+
     // MARK: Sync
 
     /// Friends' posts. Uses database changes, then record zone changes per changed zone.
@@ -367,6 +394,10 @@ actor CloudKitSharing {
             zoneTokens.append((.zone(ownerName: zone.ownerName, zoneName: zone.zoneName), token))
         }
         feed.apply(FeedChanges(removedOwners: removedOwners))
+        // The 30-day rule: expired posts leave the feed even if the owner's app has not deleted them yet.
+        for post in feed.removeExpired(now: Date()) {
+            if let url = post.imageURL { try? FileManager.default.removeItem(at: url) }
+        }
 
         // Save the feed before the tokens, so a crash refetches instead of losing posts.
         try saveFeed(feed)

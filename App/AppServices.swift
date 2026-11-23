@@ -68,6 +68,15 @@ struct AppServices: Sendable {
     let captioner: OnDeviceCaptioner
     let history: HistoryStore
     let observer: PhotoLibraryObserver
+    /// One analysis pass at a time: the charging task, the first scan, or "Find moments now".
+    let runLock: AnalysisRunLock
+
+    enum PassError: Error {
+        /// Another pass is running.
+        case busy
+        /// Limited or no photo access. New moments cannot be found.
+        case needsFullAccess
+    }
 
     /// How far back photos are analyzed and suggested.
     static let lookback: TimeInterval = 3 * 24 * 60 * 60
@@ -90,7 +99,8 @@ struct AppServices: Sendable {
             history: HistoryStore(),
             observer: PhotoLibraryObserver(lookback: lookback) { delta in
                 Task { await handleLibraryChange(delta, queue: queue) }
-            }
+            },
+            runLock: AnalysisRunLock()
         )
     }()
 
@@ -111,30 +121,44 @@ struct AppServices: Sendable {
         observer.start()
     }
 
-    /// Runs one analysis pass and stores a new suggestion, if any.
+    /// Runs one analysis pass and stores a new suggestion, if any. Returns `nil` when another pass runs.
     func runAnalysis(shouldContinue: @escaping @Sendable () -> Bool = { true }) async throws -> Suggestion? {
-        try await runPass(shouldContinue: shouldContinue, progress: { _ in })?.suggestion
+        do {
+            return try await runPass(shouldContinue: shouldContinue, progress: { _ in }).suggestion
+        } catch PassError.busy, PassError.needsFullAccess {
+            return nil
+        }
     }
 
-    /// The onboarding scan: the same pass, with progress for the UI.
-    func runFirstScan(
+    /// The onboarding scan and "Find moments now": the same pass, with progress for the UI.
+    /// Throws `PassError.busy` when another pass runs.
+    func runWithProgress(
         shouldContinue: @escaping @Sendable () -> Bool = { true },
         progress: @escaping @Sendable (AnalysisProgress) -> Void
-    ) async throws -> PipelineOutcome? {
+    ) async throws -> PipelineOutcome {
         try await runPass(shouldContinue: shouldContinue, progress: progress)
     }
 
     private func runPass(
         shouldContinue: @escaping @Sendable () -> Bool,
         progress: @escaping @Sendable (AnalysisProgress) -> Void
-    ) async throws -> PipelineOutcome? {
+    ) async throws -> PipelineOutcome {
         // Limited access shows only photos the user picked, so there is nothing new to find.
-        guard await library.authorizationStatus() == .authorized else { return nil }
+        guard await library.authorizationStatus() == .authorized else { throw PassError.needsFullAccess }
+        guard runLock.tryAcquire() else { throw PassError.busy }
+        defer { runLock.release() }
         let outcome = try await makePipeline().runWithOutcome(
             history: await history.load(), shouldContinue: shouldContinue, progress: progress
         )
         if let suggestion = outcome.suggestion { try await history.append(suggestion) }
         return outcome
+    }
+
+    /// The 30-day rule, owner side: deletes my expired posts from my CloudKit zone.
+    /// Friends' apps hide them at the same time, so a failed delete is retried on the next run.
+    @discardableResult
+    func deleteExpiredPosts() async -> Int {
+        (try? await shareService.deleteExpiredPosts(now: Date())) ?? 0
     }
 
     func deleteAllLocalAndSharedData() async throws {

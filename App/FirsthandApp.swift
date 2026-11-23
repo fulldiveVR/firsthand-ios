@@ -39,6 +39,9 @@ extension AppModel {
     /// Signs out locally when the Apple ID credential is revoked.
     func checkAppleCredential() async {
         guard let userID = appleUserID else { return }
+        #if DEBUG
+        if userID == "debug-user" { return }
+        #endif
         let state = try? await ASAuthorizationAppleIDProvider().credentialState(forUserID: userID)
         if state == .revoked || state == .notFound {
             appleUserID = nil

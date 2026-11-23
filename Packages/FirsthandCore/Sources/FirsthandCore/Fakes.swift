@@ -26,11 +26,18 @@ public actor InMemoryShareService: ShareService {
         return post
     }
 
-    public func feed() -> [Post] { Post.chronological(incoming) }
+    /// Expired posts are hidden, the same as in the real feed.
+    public func feed() -> [Post] { Post.visible(incoming, now: clock.now) }
 
     public func myPosts() -> [Post] { Post.chronological(published) }
 
     public func deletePost(_ id: Post.ID) { published.removeAll { $0.id == id } }
+
+    public func deleteExpiredPosts(now: Date) -> Int {
+        let expired = Set(PostExpiry.expiredOwnPosts(published, ownerID: author.id, now: now).map(\.id))
+        published.removeAll { expired.contains($0.id) }
+        return expired.count
+    }
 
     public func deleteAllData() {
         published.removeAll()

@@ -87,8 +87,19 @@ import Testing
         let queue = AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), cache: InMemoryAnalysisCache())
         let log = ProgressLog()
         _ = try await queue.run(since: day0, progress: { log.add($0) })
-        #expect(log.items.first == AnalysisProgress(completed: 0, total: 5))
-        #expect(log.items.last == AnalysisProgress(completed: 5, total: 5))
+        #expect(log.items.first == AnalysisProgress(completed: 0, total: 0, phase: .scanning))
+        let analyzing = log.items.filter { $0.phase == .analyzing }
+        #expect(analyzing.first == AnalysisProgress(completed: 0, total: 5))
+        #expect(analyzing.last == AnalysisProgress(completed: 5, total: 5))
+        #expect(analyzing.map(\.completed) == [0, 1, 2, 3, 4, 5])
+    }
+
+    @Test func progressFractionAndPercent() {
+        #expect(AnalysisProgress(completed: 0, total: 0, phase: .scanning).fractionCompleted == 0)
+        #expect(AnalysisProgress(completed: 0, total: 0, phase: .analyzing).fractionCompleted == 1)
+        #expect(AnalysisProgress(completed: 0, total: 0, phase: .choosing).percent == 100)
+        #expect(AnalysisProgress(completed: 1, total: 3).percent == 33)
+        #expect(AnalysisProgress(completed: 4, total: 3).fractionCompleted == 1)
     }
 
     @Test func forgetAndPruneDropRecords() async throws {
@@ -160,5 +171,57 @@ import Testing
         let suggestion = try await pipeline.run(history: SuggestionHistory())
         #expect(suggestion?.assetID == "p1")
         #expect(await notifier.notified.count == 1)
+    }
+
+    @Test func reportsPhasesInOrder() async throws {
+        let assets = (1...3).map { PhotoAsset(id: "p\($0)", captureDate: day0) }
+        let pipeline = SuggestionPipeline(
+            queue: AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), cache: InMemoryAnalysisCache()),
+            engine: SuggestionEngine(calendar: utcCalendar),
+            notifier: RecordingNotifier(),
+            clock: FixedClock(day0.addingTimeInterval(3600))
+        )
+        let log = ProgressLog()
+        _ = try await pipeline.runWithOutcome(history: SuggestionHistory(), progress: { log.add($0) })
+        var phases: [AnalysisPhase] = []
+        for p in log.items where phases.last != p.phase { phases.append(p.phase) }
+        #expect(phases == [.scanning, .analyzing, .choosing])
+        #expect(log.items.last == AnalysisProgress(completed: 3, total: 3, phase: .choosing))
+    }
+
+    @Test func interruptedRunNeverReportsChoosing() async throws {
+        let assets = (1...3).map { PhotoAsset(id: "p\($0)", captureDate: day0) }
+        let pipeline = SuggestionPipeline(
+            queue: AnalysisQueue(library: FakeLibrary(assets: assets), analyzer: RecordingAnalyzer(), cache: InMemoryAnalysisCache()),
+            notifier: RecordingNotifier(),
+            clock: FixedClock(day0.addingTimeInterval(3600))
+        )
+        let log = ProgressLog()
+        let budget = Budget(1)
+        _ = try await pipeline.runWithOutcome(history: SuggestionHistory(), shouldContinue: { budget.take() }, progress: { log.add($0) })
+        #expect(!log.items.contains { $0.phase == .choosing })
+    }
+}
+
+@Suite struct AnalysisRunLockTests {
+    @Test func allowsOneRunAtATime() {
+        let lock = AnalysisRunLock()
+        #expect(lock.tryAcquire())
+        #expect(lock.isRunning)
+        #expect(!lock.tryAcquire())
+        lock.release()
+        #expect(!lock.isRunning)
+        #expect(lock.tryAcquire())
+    }
+
+    @Test func concurrentCallersGetExactlyOneRun() async {
+        let lock = AnalysisRunLock()
+        let wins = await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<50 { group.addTask { lock.tryAcquire() } }
+            var count = 0
+            for await won in group where won { count += 1 }
+            return count
+        }
+        #expect(wins == 1)
     }
 }
