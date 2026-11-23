@@ -37,6 +37,7 @@ targets:
         ENABLE_PREVIEWS: YES
         # No app icon yet.
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:
         # Demo fixtures (App/Debug) ship only in Debug builds.
         Release:

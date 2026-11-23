@@ -50,10 +50,11 @@ private struct PostRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 10) {
+                Avatar(id: post.authorID, name: post.authorName, size: 28)
                 Text(post.authorName).font(.headline)
                 Spacer()
-                Text(post.createdAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+                Text(post.createdAt.shortRelative()).font(.footnote).foregroundStyle(.secondary)
             }
             if let url = post.imageURL, let image = UIImage(contentsOfFile: url.path) {
                 Image(uiImage: image)
