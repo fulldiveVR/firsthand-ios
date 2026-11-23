@@ -10,21 +10,30 @@ struct MomentsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Spacing.betweenSections) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Today", subtitle: Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                        TodaySection(onShare: { shareTarget = $0 })
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.betweenSections) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionHeader(title: "Today", subtitle: Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                            TodaySection(onShare: { shareTarget = $0 })
+                        }
+                        FriendsMomentsSection()
+                        YourMomentsShelf()
+                            .id(HomeAnchor.shelf)
                     }
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "From Friends")
-                        FeedSection()
+                    .padding(.horizontal, Theme.Spacing.margin)
+                    .padding(.bottom, Theme.Spacing.betweenSections)
+                }
+                #if DEBUG
+                .onAppear {
+                    if UserDefaults.standard.string(forKey: "demoScroll") == "shelf" {
+                        proxy.scrollTo(HomeAnchor.shelf, anchor: .bottom)
                     }
                 }
-                .padding(.horizontal, Theme.Spacing.margin)
-                .padding(.bottom, Theme.Spacing.betweenSections)
+                #endif
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
+            .modifier(MinimizingToolbar())
             .refreshable { await model.refreshSharing() }
             .navigationTitle("Moments")
             .toolbar { MomentsToolbar() }
@@ -56,7 +65,7 @@ struct MomentsToolbar: ToolbarContent {
             Button("Friends", systemImage: "person.2") { model.homeSheet = .friends }
                 .badge(model.friendsNeedingAction)
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: Self.profilePlacement) {
             Button {
                 model.homeSheet = .profile
             } label: {
@@ -65,6 +74,28 @@ struct MomentsToolbar: ToolbarContent {
             .accessibilityLabel("Profile and Privacy")
         }
         .sharedBackgroundVisibility(.hidden)
+    }
+}
+
+extension MomentsToolbar {
+    /// iOS 27 keeps the profile avatar visible when the toolbar compacts.
+    static var profilePlacement: ToolbarItemPlacement {
+        if #available(iOS 27, *) { .topBarPinnedTrailing } else { .topBarTrailing }
+    }
+}
+
+private enum HomeAnchor: Hashable {
+    case shelf
+}
+
+/// iOS 27: the toolbar shrinks while the user scrolls through friends' moments.
+private struct MinimizingToolbar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 27, *) {
+            content.toolbarMinimizationBehavior(.onScrollDown, for: .navigationBar)
+        } else {
+            content
+        }
     }
 }
 
