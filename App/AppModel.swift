@@ -4,6 +4,7 @@ import CloudKit
 import Foundation
 import Observation
 import Synchronization
+import UIKit
 
 @MainActor
 @Observable
@@ -73,6 +74,14 @@ final class AppModel {
     /// A link to send, shown in a sheet with a QR code.
     var outgoingInvite: OutgoingInvite?
     var sharingError: String?
+    /// Today's suggestion after the user shared or skipped it. Today then shows the decided state.
+    var decidedToday: Suggestion?
+    /// Reverse-geocoded names of coarse location buckets, for "Near ..." copy.
+    var placeNames: [String: String] = [:]
+    /// Photos with a stored analysis result, for the privacy stats.
+    var analyzedPhotoCount = 0
+    /// Debug demo content is on. Real services are not read.
+    var isDemo = false
 
     struct OutgoingInvite: Identifiable, Equatable {
         var id: URL { url }
@@ -95,10 +104,13 @@ final class AppModel {
     var isOnboarded: Bool { appleUserID != nil && photoAccess.canRead && hasCompletedFirstScan }
 
     func refresh() async {
+        if isDemo { return }
         photoAccess = await services.library.authorizationStatus()
         notificationAccess = await services.notifier.access()
         if photoAccess.canRead { services.startObservingLibrary() }
-        pending = await services.history.load().pending
+        let history = await services.history.load()
+        pending = history.pending
+        decidedToday = Self.decidedToday(in: history)
         // The 30-day rule, owner side. Once per launch, before the feed loads.
         if isOnboarded && !didCleanUpExpiredPosts {
             didCleanUpExpiredPosts = true
@@ -107,11 +119,25 @@ final class AppModel {
         await refreshSharing()
     }
 
+    /// The last suggestion made today that the user shared or skipped.
+    static func decidedToday(in history: SuggestionHistory, now: Date = Date()) -> Suggestion? {
+        history.suggestions.last { $0.decision != nil && Calendar.current.isDate($0.createdAt, inSameDayAs: now) }
+    }
+
+    /// The suggestion photo. Demo assets come from the debug asset catalog.
+    func image(for assetID: String, side: CGFloat) async -> UIImage? {
+        #if DEBUG
+        if let demo = DemoContent.image(for: assetID) { return demo }
+        #endif
+        return await services.library.thumbnail(for: assetID, side: side)
+    }
+
     /// Feed posts that are not expired at `now`. The feed view reads this, so a post never shows after 30 days.
     func visibleFeed(now: Date = Date()) -> [Post] { Post.visible(feed, now: now) }
 
     /// Friends from CloudKit, then friends' posts and my posts.
     func refreshSharing() async {
+        if isDemo { return }
         if let list = try? await services.friends.friendships() {
             friendships = list.filter(\.state.isActive)
             friends = friendships.map(\.asFriend)
@@ -268,6 +294,11 @@ final class AppModel {
                 shareState = .idle
                 return
             }
+            if isDemo {
+                try await decide(.share, for: suggestion)
+                shareState = .idle
+                return
+            }
             guard let data = try await services.library.imageData(for: suggestion.assetID) else {
                 shareState = .failed(String(localized: "This photo is no longer on your iPhone."))
                 return
@@ -290,10 +321,18 @@ final class AppModel {
     }
 
     private func decide(_ decision: ShareDecision, for suggestion: Suggestion) async throws {
+        var decided = suggestion
+        decided.decision = decision
+        if isDemo {
+            pending = nil
+            decidedToday = decided
+            return
+        }
         var history = await services.history.load()
         history.record(decision, for: suggestion.id)
         try await services.history.save(history)
         pending = nil
+        decidedToday = Self.decidedToday(in: history) ?? decided
     }
 
     func deleteAllData() async {
@@ -372,11 +411,17 @@ final class AppModel {
     /// Screenshot and test helpers. Debug builds only.
     /// `-resetOnboarding YES` starts onboarding again. `-skipOnboarding YES` opens the tabs.
     /// `-onboardingPage N` (1-based) opens that onboarding page. `-demoProgress YES` shows a fixed progress state.
+    /// `-demoContent YES` and `-demoState <state>` load fixture content, see `DemoContent`.
     private func applyDebugLaunchArguments() {
         let defaults = UserDefaults.standard
+        if DemoContent.isEnabled { DemoContent.apply(to: self) }
         if defaults.bool(forKey: "resetOnboarding") {
             appleUserID = nil
             hasCompletedFirstScan = false
+            if isDemo {
+                photoAccess = .notDetermined
+                notificationAccess = .notDetermined
+            }
         }
         if defaults.bool(forKey: "skipOnboarding") {
             if appleUserID == nil { appleUserID = "debug-user" }

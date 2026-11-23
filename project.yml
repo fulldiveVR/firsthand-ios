@@ -35,3 +35,9 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         ENABLE_PREVIEWS: YES
+        # No app icon yet.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+      configs:
+        # Demo fixtures (App/Debug) ship only in Debug builds.
+        Release:
+          EXCLUDED_SOURCE_FILE_NAMES: "DemoAssets.xcassets DemoContent.swift"

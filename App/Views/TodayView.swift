@@ -130,7 +130,7 @@ private struct SuggestionCard: View {
             Text("Your friends can see this for 30 days. Then it disappears from their feed and your iCloud.")
         }
         .task(id: suggestion.assetID) {
-            image = await model.services.library.thumbnail(for: suggestion.assetID, side: 1200)
+            image = await model.image(for: suggestion.assetID, side: 1200)
         }
     }
 }
