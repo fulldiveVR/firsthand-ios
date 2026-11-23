@@ -113,6 +113,8 @@ final class AppModel {
         hasCompletedFirstScan = UserDefaults.standard.bool(forKey: Self.firstScanKey)
         #if DEBUG
         applyDebugLaunchArguments()
+        // Do not wait for the scene to become active: a launch from devicectl may keep the screen off.
+        if Self.runAnalysisOnLaunch { Task { await self.refresh() } }
         #endif
     }
 

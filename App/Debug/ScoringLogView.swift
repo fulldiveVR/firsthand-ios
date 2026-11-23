@@ -139,6 +139,7 @@ private struct ScoringLogRow: View {
                     Spacer(minLength: 0)
                     if entry.isMomentBest { tag("best", .blue) }
                     if entry.isAlreadyUsed { tag("used", .gray) }
+                    if entry.isCollapsedDuplicate { tag("dup", .gray) }
                     scoreText
                 }
                 .font(.caption.monospacedDigit())
