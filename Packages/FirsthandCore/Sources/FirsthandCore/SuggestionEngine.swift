@@ -40,6 +40,16 @@ public struct SuggestionPolicy: Sendable {
     }
 }
 
+/// A product rule that blocks any new suggestion, whatever the photos are.
+public enum SuggestionGate: String, Sendable, Codable, Equatable {
+    /// An undecided suggestion exists.
+    case pendingSuggestion
+    /// The daily cap is reached.
+    case dailyCap
+    /// The last suggestion is newer than the cooldown.
+    case cooldown
+}
+
 /// Picks at most one suggestion. The user can only share or skip it.
 public struct SuggestionEngine: Sendable {
     public var policy: SuggestionPolicy
@@ -48,6 +58,25 @@ public struct SuggestionEngine: Sendable {
     public init(policy: SuggestionPolicy = SuggestionPolicy(), calendar: Calendar = .current) {
         self.policy = policy
         self.calendar = calendar
+    }
+
+    /// The first product rule that blocks a new suggestion now, or `nil` when photos decide.
+    public func gate(history: SuggestionHistory, now: Date) -> SuggestionGate? {
+        // An undecided suggestion blocks new ones. There is never a second option.
+        if history.pending != nil { return .pendingSuggestion }
+
+        let today = history.suggestions.filter { calendar.isDate($0.createdAt, inSameDayAs: now) }
+        if today.count >= policy.dailyCap { return .dailyCap }
+
+        if let last = history.suggestions.map(\.createdAt).max(), now.timeIntervalSince(last) < policy.cooldown {
+            return .cooldown
+        }
+        return nil
+    }
+
+    /// When the cooldown ends, or `nil` when there is no suggestion yet.
+    public func cooldownEnd(history: SuggestionHistory) -> Date? {
+        history.suggestions.map(\.createdAt).max()?.addingTimeInterval(policy.cooldown)
     }
 
     /// Picks the best photo of the best qualifying moment.
@@ -63,15 +92,7 @@ public struct SuggestionEngine: Sendable {
         now: Date,
         newPlaceAssetIDs: Set<String> = []
     ) -> Suggestion? {
-        // An undecided suggestion blocks new ones. There is never a second option.
-        if history.pending != nil { return nil }
-
-        let today = history.suggestions.filter { calendar.isDate($0.createdAt, inSameDayAs: now) }
-        if today.count >= policy.dailyCap { return nil }
-
-        if let last = history.suggestions.map(\.createdAt).max(), now.timeIntervalSince(last) < policy.cooldown {
-            return nil
-        }
+        if gate(history: history, now: now) != nil { return nil }
 
         let usedAssets = Set(history.suggestions.map(\.assetID))
         let best = scored
