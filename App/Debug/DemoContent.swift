@@ -9,7 +9,7 @@ import UIKit
 /// - `-demoContent YES` fills the app with fixture friends, posts and a suggestion.
 /// - `-demoState <suggestion|analyzing|quiet|shared|skipped|limited|failed>` picks the Today state.
 /// - `-demoFriends <none|waiting|some>` picks the friend list. Default `some`.
-/// - `-demoSheet <friends|profile>` opens that sheet on launch.
+/// - `-demoSheet <friends|profile|qr|share|details|postDetails|myPostDetails>` opens that screen on launch.
 /// The fixture photos are abstract renders from `scripts/make-demo-fixtures.swift`.
 enum DemoContent {
     enum State: String {
@@ -152,7 +152,12 @@ enum DemoContent {
         model.placeNames = placeNames
         model.analyzedPhotoCount = 1_284
 
-        model.homeSheet = UserDefaults.standard.string(forKey: "demoSheet").flatMap(AppModel.HomeSheet.init(rawValue:))
+        let sheet = UserDefaults.standard.string(forKey: "demoSheet")
+        model.homeSheet = sheet.flatMap(AppModel.HomeSheet.init(rawValue:))
+        if sheet == "qr" {
+            model.homeSheet = .friends
+            model.outgoingInvite = .init(url: URL(string: "https://www.icloud.com/share/0demoInviteLinkForScreenshots")!)
+        }
 
         switch state {
         case .suggestion:

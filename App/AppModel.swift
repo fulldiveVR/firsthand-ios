@@ -77,8 +77,8 @@ final class AppModel {
     var hasCompletedFirstScan: Bool {
         didSet { UserDefaults.standard.set(hasCompletedFirstScan, forKey: Self.firstScanKey) }
     }
-    /// Set after I accepted a friend's share and did not share back yet. The UI asks once.
-    var reverseShareOffer: Friendship?
+    /// A friend to highlight in the Friends sheet, after an invite was accepted.
+    var highlightedFriendID: String?
     /// A link to send, shown in a sheet with a QR code.
     var outgoingInvite: OutgoingInvite?
     var sharingError: String?
@@ -172,7 +172,11 @@ final class AppModel {
             let friendship = try await services.sharing.accept(metadata)
             await refreshSharing()
             let current = friendships.first { $0.id == friendship.id } ?? friendship
-            if current.needsReverseShare { reverseShareOffer = current }
+            highlightedFriendID = current.id
+            homeSheet = .friends
+            // Finish the friendship in the same flow: share back so they see my moments too.
+            // If this fails, the Friends sheet shows "Finish adding" for this friend.
+            if current.needsReverseShare { await shareBack(with: current) }
         } catch FriendshipError.friendLimitReached(let limit) {
             sharingError = String(localized: "You already have \(limit) friends. Remove one to accept this invite.")
         } catch CloudKitSharing.SharingError.ownShare {
@@ -184,7 +188,6 @@ final class AppModel {
 
     /// Reverse share: lets the friend whose share I accepted see my posts too.
     func shareBack(with friendship: Friendship) async {
-        reverseShareOffer = nil
         do {
             let url = try await services.friends.shareBack(with: friendship.id)
             outgoingInvite = OutgoingInvite(url: url, friendName: friendship.displayName)
