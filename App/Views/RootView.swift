@@ -11,7 +11,7 @@ struct RootView: View {
             .sheet(item: $model.homeSheet) { sheet in
                 switch sheet {
                 case .friends: FriendsView()
-                case .profile: SettingsView()
+                case .profile: ProfileView()
                 }
             }
             // While the Friends sheet is open, it presents the invite itself.

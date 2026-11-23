@@ -200,7 +200,7 @@ struct OnboardingView: View {
             case .notStarted:
                 primary("Find My Moments") { model.startFirstScan() }
             case .scanning(let progress):
-                AnalysisProgressView(progress: progress)
+                ProgressView(progress.subtitle)
                     .padding(16)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }

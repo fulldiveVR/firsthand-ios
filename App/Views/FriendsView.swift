@@ -257,8 +257,11 @@ struct NavigationRowLabel: View {
 
     var body: some View {
         HStack {
-            Label(title, systemImage: systemImage)
-                .foregroundStyle(.primary)
+            Label {
+                Text(title).foregroundStyle(Color.primary)
+            } icon: {
+                Image(systemName: systemImage).foregroundStyle(.tint)
+            }
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.footnote.weight(.semibold))

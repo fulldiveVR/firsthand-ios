@@ -118,6 +118,7 @@ final class AppModel {
         photoAccess = await services.library.authorizationStatus()
         notificationAccess = await services.notifier.access()
         if photoAccess.canRead { services.startObservingLibrary() }
+        analyzedPhotoCount = (try? await services.analysisCache.records().count) ?? analyzedPhotoCount
         let history = await services.history.load()
         pending = history.pending
         decidedToday = Self.decidedToday(in: history)
@@ -421,6 +422,7 @@ final class AppModel {
         manualScanTask = nil
         manualScanStop = nil
         pending = await services.history.load().pending
+        analyzedPhotoCount = (try? await services.analysisCache.records().count) ?? analyzedPhotoCount
         manualScan = .finished(result)
     }
 
