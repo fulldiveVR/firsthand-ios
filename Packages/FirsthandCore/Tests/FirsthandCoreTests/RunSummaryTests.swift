@@ -122,6 +122,27 @@ private struct FixedAnalyzer: ImageAnalyzer {
         #expect(report.log.map(\.assetID) == assets.map(\.id))
     }
 
+    @Test func logScoresMatchTheRankerForCollapsedBursts() async throws {
+        // A burst at a beach. The last frame is the best, so the ranker keeps it.
+        let burst = (0..<3).map { i in
+            PhotoAsset(id: "b\(i)", captureDate: day0.addingTimeInterval(Double(i)), burstIdentifier: "B", locationBucket: "beach")
+        }
+        let home = PhotoAsset(id: "home", captureDate: day0.addingTimeInterval(-10 * 86_400), locationBucket: "home")
+        struct ByID: ImageAnalyzer {
+            func analyze(_ asset: PhotoAsset) async throws -> AnalysisSignals {
+                signals(aesthetic: asset.id == "b2" ? 0.9 : 0.6, faces: 1)
+            }
+        }
+        let outcome = try await pipeline(burst + [home], analyzer: ByID()).runWithOutcome(history: SuggestionHistory())
+        let best = try #require(outcome.log.first { $0.isMomentBest })
+        #expect(best.assetID == "b2")
+        #expect(best.score == outcome.summary.bestScore)
+        #expect(outcome.suggestion?.score == best.score)
+        #expect(outcome.log.filter { $0.isCollapsedDuplicate }.map(\.assetID).sorted() == ["b0", "b1"])
+        // Every logged score is at most the best moment score the engine saw.
+        #expect(outcome.log.compactMap(\.score).allSatisfy { $0 <= best.score! })
+    }
+
     @Test func lookbackIsAWeek() {
         #expect(SuggestionPipeline.defaultLookback == 7 * 24 * 3600)
         #expect(pipeline([]).lookback == SuggestionPipeline.defaultLookback)

@@ -106,6 +106,8 @@ public struct ScoringLogEntry: Sendable, Codable, Equatable, Identifiable {
     public var isMomentBest: Bool
     /// Its moment contains a photo that was suggested before.
     public var isAlreadyUsed: Bool
+    /// A burst or near-duplicate frame that the ranker collapsed into a better frame of the same moment.
+    public var isCollapsedDuplicate: Bool
     public var isExcluded: Bool
     public var failure: AnalysisFailure?
     public var hasAdjustments: Bool
@@ -122,6 +124,7 @@ public struct ScoringLogEntry: Sendable, Codable, Equatable, Identifiable {
         isNewPlace: Bool = false,
         isMomentBest: Bool = false,
         isAlreadyUsed: Bool = false,
+        isCollapsedDuplicate: Bool = false,
         isExcluded: Bool = false,
         failure: AnalysisFailure? = nil,
         hasAdjustments: Bool = false
@@ -135,6 +138,7 @@ public struct ScoringLogEntry: Sendable, Codable, Equatable, Identifiable {
         self.isNewPlace = isNewPlace
         self.isMomentBest = isMomentBest
         self.isAlreadyUsed = isAlreadyUsed
+        self.isCollapsedDuplicate = isCollapsedDuplicate
         self.isExcluded = isExcluded
         self.failure = failure
         self.hasAdjustments = hasAdjustments

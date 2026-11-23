@@ -160,34 +160,19 @@ public struct SuggestionPipeline: Sendable {
             analysis: result,
             suggestion: suggestion,
             summary: summary,
-            log: scoringLog(result, moments: moments, context: context, usedIDs: usedIDs, threshold: threshold)
+            log: scoringLog(result, context: context, usedIDs: usedIDs, threshold: threshold)
         )
         return (outcome, moments)
     }
 
-    /// Every photo of the window, newest first. Each analyzed photo is scored inside its moment,
-    /// the same way the ranker scores it. Duplicates are not collapsed here, so each one shows its own score.
+    /// Every photo of the window, newest first, scored exactly as the ranker scores it.
     private func scoringLog(
         _ result: AnalysisRunResult,
-        moments: [RankedMoment],
         context: ScoringContext,
         usedIDs: Set<String>,
         threshold: Double
     ) -> [ScoringLogEntry] {
-        let scorer = ranker.scorer
-        let bestIDs = Set(moments.map(\.best.candidate.assetID))
-        let usedDates = result.candidates.filter { usedIDs.contains($0.assetID) }.map(\.captureDate)
-        var scored: [String: (ScoredCandidate, newPlace: Bool, used: Bool)] = [:]
-        for m in ranker.grouping.group(result.candidates) {
-            let used = usedDates.contains { $0 >= m.start && $0 <= m.end }
-            for c in m.candidates {
-                scored[c.assetID] = (
-                    scorer.score(c, momentStart: m.start, context: context),
-                    scorer.isNewPlace(c, momentStart: m.start, context: context),
-                    used
-                )
-            }
-        }
+        let details = ranker.details(result.candidates, context: context, excludedAssetIDs: usedIDs)
         return result.assets.map { asset in
             let record = result.records[asset.id]
             var entry = ScoringLogEntry(
@@ -197,14 +182,15 @@ public struct SuggestionPipeline: Sendable {
                 failure: record?.candidate == nil ? record?.failure : nil,
                 hasAdjustments: asset.hasAdjustments
             )
-            if let (s, newPlace, used) = scored[asset.id] {
-                entry.signals = s.candidate.signals
-                entry.score = s.score
-                entry.isEligible = s.isEligible
-                entry.passesThreshold = s.isEligible && s.score >= threshold
-                entry.isNewPlace = newPlace
-                entry.isMomentBest = bestIDs.contains(asset.id)
-                entry.isAlreadyUsed = used
+            if let d = details[asset.id] {
+                entry.signals = d.scored.candidate.signals
+                entry.score = d.scored.score
+                entry.isEligible = d.scored.isEligible
+                entry.passesThreshold = d.scored.isEligible && d.scored.score >= threshold
+                entry.isNewPlace = d.isNewPlace
+                entry.isMomentBest = d.isMomentBest && !d.isInExcludedMoment
+                entry.isAlreadyUsed = d.isInExcludedMoment
+                entry.isCollapsedDuplicate = d.isCollapsedDuplicate
             }
             return entry
         }
