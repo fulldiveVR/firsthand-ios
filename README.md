@@ -18,7 +18,10 @@ brew install xcodegen && xcodegen generate
 open Firsthand.xcodeproj
 ```
 
-The `.xcodeproj` is generated and not committed. Set your own development team in Xcode, do not commit it.
+The `.xcodeproj` is generated and not committed.
+
+Signing: copy `Local.xcconfig.example` to `Local.xcconfig` and set your team ID.
+`Local.xcconfig` is gitignored, so the team ID is never committed.
 
 Domain logic tests run on macOS without Xcode:
 

@@ -20,6 +20,9 @@ targets:
       - path: App
     dependencies:
       - package: FirsthandCore
+    configFiles:
+      Debug: Config/Base.xcconfig
+      Release: Config/Base.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fulldive.firsthand
@@ -27,8 +30,7 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: App/Resources/Firsthand.entitlements
         CODE_SIGN_STYLE: Automatic
-        # Set your own team in Xcode. Do not commit it.
-        DEVELOPMENT_TEAM: ""
+        # DEVELOPMENT_TEAM comes from the gitignored Local.xcconfig (see Config/Base.xcconfig).
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"

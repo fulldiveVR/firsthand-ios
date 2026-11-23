@@ -1,0 +1,3 @@
+// Shared settings for the Firsthand target.
+// Local.xcconfig is optional and gitignored. Put DEVELOPMENT_TEAM there.
+#include? "../Local.xcconfig"
