@@ -45,7 +45,9 @@ struct TodaySection: View {
                     onSkip: { skip() },
                     onDetails: { onDetails(suggestion) }
                 )
+                .momentTransitionSource(MomentRoute.suggestion(suggestion).id)
                 .transition(heroTransition)
+                .task(id: suggestion.id) { await model.resolvePlace(for: suggestion) }
             case .analyzing(let progress):
                 AnalyzingCard(progress: progress, failed: false, onStop: model.cancelFindMoments, onRetry: model.findMomentsNow)
                     .transition(cardTransition)
@@ -54,6 +56,7 @@ struct TodaySection: View {
                     .transition(cardTransition)
             case .decided(let suggestion):
                 DecidedCard(suggestion: suggestion, namespace: morph, onDetails: { onDetails(suggestion) })
+                    .momentTransitionSource(MomentRoute.suggestion(suggestion).id)
                     .transition(cardTransition)
             case .limited:
                 LimitedAccessCard()

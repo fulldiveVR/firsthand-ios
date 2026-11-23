@@ -7,18 +7,23 @@ import SwiftUI
 struct MomentsView: View {
     @Environment(AppModel.self) private var model
     @State private var shareTarget: Suggestion?
+    @State private var path: [MomentRoute] = []
+    @Namespace private var zoom
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.Spacing.betweenSections) {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionHeader(title: "Today", subtitle: Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                            TodaySection(onShare: { shareTarget = $0 })
+                            TodaySection(
+                                onDetails: { path.append(.suggestion($0)) },
+                                onShare: { shareTarget = $0 }
+                            )
                         }
-                        FriendsMomentsSection()
-                        YourMomentsShelf()
+                        FriendsMomentsSection(onOpen: { path.append(.post($0)) })
+                        YourMomentsShelf(onOpen: { path.append(.post($0)) })
                             .id(HomeAnchor.shelf)
                     }
                     .padding(.horizontal, Theme.Spacing.margin)
@@ -32,8 +37,13 @@ struct MomentsView: View {
                 }
                 #endif
             }
+            .environment(\.momentsNamespace, zoom)
             .scrollEdgeEffectStyle(.soft, for: .top)
             .modifier(MinimizingToolbar())
+            .navigationDestination(for: MomentRoute.self) { route in
+                MomentDetailsView(route: route)
+                    .modifier(MomentDetailsTransition(id: route.id, namespace: zoom))
+            }
             .refreshable { await model.refreshSharing() }
             .navigationTitle("Moments")
             .toolbar { MomentsToolbar() }
@@ -49,7 +59,13 @@ struct MomentsView: View {
             .sensoryFeedback(.success, trigger: model.shareSuccessCount)
             #if DEBUG
             .onAppear {
-                if UserDefaults.standard.string(forKey: "demoSheet") == "share" { shareTarget = model.pending }
+                switch UserDefaults.standard.string(forKey: "demoSheet") {
+                case "share": shareTarget = model.pending
+                case "details": if let s = model.pending ?? model.decidedToday { path = [.suggestion(s)] }
+                case "postDetails": if let p = model.friendsPosts().first { path = [.post(p)] }
+                case "myPostDetails": if let p = model.myPosts().first { path = [.post(p)] }
+                default: break
+                }
             }
             #endif
         }

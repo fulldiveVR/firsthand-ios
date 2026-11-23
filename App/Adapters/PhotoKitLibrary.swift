@@ -96,6 +96,14 @@ struct PhotoKitLibrary: PhotoLibrary {
         return "\(lat):\(lon)"
     }
 
+    /// The center of a bucket from `bucket(_:)`, for "Near ..." place names.
+    static func bucketCenter(_ bucket: String) -> CLLocationCoordinate2D? {
+        let parts = bucket.split(separator: ":")
+        guard parts.count == 2, let lat = Int(parts[0]), let lon = Int(parts[1]) else { return nil }
+        let step = 0.01
+        return CLLocationCoordinate2D(latitude: (Double(lat) + 0.5) * step, longitude: (Double(lon) + 0.5) * step)
+    }
+
     static func map(_ status: PHAuthorizationStatus) -> PhotoAuthorization {
         switch status {
         case .authorized: .authorized

@@ -53,6 +53,7 @@ struct FriendMomentCard: View {
                 PostPhoto(url: post.imageURL, clampAspect: true)
                     .clipShape(Theme.shape(Theme.Radius.card))
                     .contentShape(Theme.shape(Theme.Radius.card))
+                    .momentTransitionSource(MomentRoute.post(post).id)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Moment from \(post.authorName)"))
@@ -155,6 +156,7 @@ struct YourMomentsShelf: View {
                                     .frame(width: 120)
                                     .clipShape(Theme.shape(Theme.Radius.small))
                                     .contentShape(Theme.shape(Theme.Radius.small))
+                                    .momentTransitionSource(MomentRoute.post(post).id)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(post.caption ?? String(localized: "Your moment"))
