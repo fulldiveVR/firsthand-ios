@@ -6,8 +6,14 @@ public struct AnalysisRunResult: Sendable, Equatable {
     public var analyzedThisRun: Int
     /// New or changed assets found at the start of the run.
     public var pendingAtStart: Int
+    /// Analyses that failed in this run. They are retried on the next run.
+    public var failedThisRun: Int = 0
     /// Analyzed candidates of the assets in this run's window, from the cache.
     public var candidates: [PhotoCandidate]
+    /// The assets of this run's window, newest first.
+    public var assets: [PhotoAsset] = []
+    /// Cache records of `assets`, keyed by asset id.
+    public var records: [String: AnalysisRecord] = [:]
 }
 
 /// The step of a run that the UI shows.
@@ -48,18 +54,26 @@ public actor AnalysisQueue {
     private let library: PhotoLibrary
     private let analyzer: ImageAnalyzer
     private let cache: AnalysisCacheStore
+    private let clock: Clock
     private var isRunning = false
 
-    public init(library: PhotoLibrary, analyzer: ImageAnalyzer, cache: AnalysisCacheStore) {
+    public init(library: PhotoLibrary, analyzer: ImageAnalyzer, cache: AnalysisCacheStore, clock: Clock = SystemClock()) {
         self.library = library
         self.analyzer = analyzer
         self.cache = cache
+        self.clock = clock
     }
 
-    /// Assets without a record, or with a record of an older revision.
+    /// Assets without a final record: new, changed, or failed fewer than `AnalysisRecord.maxAttempts` times.
     public func pendingAssets(_ assets: [PhotoAsset]) async throws -> [PhotoAsset] {
         let records = try await cache.records()
-        return assets.filter { records[$0.id]?.revision != $0.revision }
+        return assets.filter { records[$0.id]?.isSettled(for: $0.revision) != true }
+    }
+
+    /// Cached records of the given assets, without analysis. For the debug scoring log.
+    public func cachedRecords(for assets: [PhotoAsset]) async throws -> [String: AnalysisRecord] {
+        let ids = Set(assets.map(\.id))
+        return try await cache.records().filter { ids.contains($0.key) }
     }
 
     /// Fetches photos since `since`, analyzes the new or changed ones, and drops older records.
@@ -89,17 +103,26 @@ public actor AnalysisQueue {
         isRunning = true
         defer { isRunning = false }
 
-        let pending = try await pendingAssets(assets)
+        let before = try await cache.records()
+        let pending = assets.filter { before[$0.id]?.isSettled(for: $0.revision) != true }
         var analyzed = 0
+        var failed = 0
         var processed = 0
         progress(AnalysisProgress(completed: 0, total: pending.count))
 
         func result(complete: Bool) async throws -> AnalysisRunResult {
             try await cache.flush()
-            let records = try await cache.records()
-            let candidates = assets.compactMap { records[$0.id]?.candidate }
+            let all = try await cache.records()
+            var records: [String: AnalysisRecord] = [:]
+            for asset in assets { records[asset.id] = all[asset.id] }
             return AnalysisRunResult(
-                isComplete: complete, analyzedThisRun: analyzed, pendingAtStart: pending.count, candidates: candidates
+                isComplete: complete,
+                analyzedThisRun: analyzed,
+                pendingAtStart: pending.count,
+                failedThisRun: failed,
+                candidates: assets.compactMap { records[$0.id]?.candidate },
+                assets: assets,
+                records: records
             )
         }
 
@@ -107,26 +130,36 @@ public actor AnalysisQueue {
             if Task.isCancelled || !shouldContinue() {
                 return try await result(complete: false)
             }
-            var candidate: PhotoCandidate?
-            if !asset.isScreenshot {
+            var record = AnalysisRecord(revision: asset.revision, captureDate: asset.captureDate, candidate: nil)
+            if asset.isScreenshot {
                 // Screenshots are never suggested, so their pixels are never loaded.
+                record.isExcluded = true
+            } else {
                 do {
-                    candidate = PhotoCandidate(asset: asset, signals: try await analyzer.analyze(asset))
+                    record.candidate = PhotoCandidate(asset: asset, signals: try await analyzer.analyze(asset))
                     analyzed += 1
                 } catch is CancellationError {
                     return try await result(complete: false)
                 } catch {
-                    // A broken asset must not block the queue. It is retried when it changes.
+                    // A broken asset must not block the queue. It is retried on later runs, up to the attempt limit.
+                    let previous = before[asset.id].flatMap { $0.revision == asset.revision ? $0.failure : nil }
+                    record.failure = AnalysisFailure(
+                        reason: Self.describe(error),
+                        attempts: (previous?.attempts ?? 0) + 1,
+                        lastAttempt: clock.now
+                    )
+                    failed += 1
                 }
             }
-            try await cache.upsert(
-                AnalysisRecord(revision: asset.revision, captureDate: asset.captureDate, candidate: candidate),
-                for: asset.id
-            )
+            try await cache.upsert(record, for: asset.id)
             processed += 1
             progress(AnalysisProgress(completed: processed, total: pending.count))
         }
         return try await result(complete: true)
+    }
+
+    static func describe(_ error: Error) -> String {
+        String(describing: error)
     }
 
     /// Removes records of deleted assets.

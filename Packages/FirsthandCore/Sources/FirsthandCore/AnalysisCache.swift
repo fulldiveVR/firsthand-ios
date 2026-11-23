@@ -1,18 +1,75 @@
 import Foundation
 
+/// A failed analysis of one asset at one revision. The asset is retried on later runs
+/// until `attempts` reaches `AnalysisRecord.maxAttempts`.
+public struct AnalysisFailure: Sendable, Codable, Equatable {
+    /// A short, technical reason, for the debug scoring log. Never shown as user copy.
+    public var reason: String
+    public var attempts: Int
+    public var lastAttempt: Date
+
+    public init(reason: String, attempts: Int, lastAttempt: Date) {
+        self.reason = reason
+        self.attempts = attempts
+        self.lastAttempt = lastAttempt
+    }
+}
+
 /// The analysis result of one asset at one revision.
 public struct AnalysisRecord: Sendable, Codable, Equatable {
+    /// Failed analyses of one revision are tried at most this many times.
+    public static let maxAttempts = 3
+
     /// `PhotoAsset.revision` at analysis time. A different revision means the asset changed.
     public var revision: String
     public var captureDate: Date
-    /// `nil` when the asset is never suggested (screenshot) or the analysis failed.
-    /// The record still exists, so the asset is not analyzed again until it changes.
+    /// The analysis result. `nil` when the asset is excluded or the analysis failed.
     public var candidate: PhotoCandidate?
+    /// Set when the analysis failed. A failed record is retried until it reaches `maxAttempts`.
+    public var failure: AnalysisFailure?
+    /// The asset is never suggested (screenshot), so it is never analyzed.
+    public var isExcluded: Bool
 
-    public init(revision: String, captureDate: Date, candidate: PhotoCandidate?) {
+    public init(
+        revision: String,
+        captureDate: Date,
+        candidate: PhotoCandidate?,
+        failure: AnalysisFailure? = nil,
+        isExcluded: Bool = false
+    ) {
         self.revision = revision
         self.captureDate = captureDate
         self.candidate = candidate
+        self.failure = failure
+        self.isExcluded = isExcluded
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case revision, captureDate, candidate, failure, isExcluded
+    }
+
+    /// Older files have only `revision`, `captureDate` and `candidate`.
+    /// An old record without a candidate is then neither failed nor excluded, so it is analyzed again.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        revision = try c.decode(String.self, forKey: .revision)
+        captureDate = try c.decode(Date.self, forKey: .captureDate)
+        candidate = try c.decodeIfPresent(PhotoCandidate.self, forKey: .candidate)
+        failure = try c.decodeIfPresent(AnalysisFailure.self, forKey: .failure)
+        isExcluded = try c.decodeIfPresent(Bool.self, forKey: .isExcluded) ?? false
+    }
+
+    /// `true` when this record is final for `revision`: analyzed, excluded, or failed too often.
+    public func isSettled(for revision: String) -> Bool {
+        guard self.revision == revision else { return false }
+        if candidate != nil || isExcluded { return true }
+        guard let failure else { return false }
+        return failure.attempts >= Self.maxAttempts
+    }
+
+    /// Failed and given up for this revision.
+    public var hasGivenUp: Bool {
+        candidate == nil && (failure?.attempts ?? 0) >= Self.maxAttempts
     }
 }
 

@@ -478,6 +478,8 @@ struct ThinProgressStyle: ProgressViewStyle {
 struct QuietDayCard: View {
     @Environment(AppModel.self) private var model
 
+    private var copy: QuietCopy { QuietCopy(model.lastRunSummary) }
+
     var body: some View {
         AdaptiveStack(spacing: 14) {
             Image(systemName: "leaf")
@@ -487,9 +489,9 @@ struct QuietDayCard: View {
                 .frame(width: 32)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Nothing stood out yet")
+                Text(copy.title)
                     .font(.headline)
-                Text("Go live a little. We'll tell you when a moment stands out.")
+                Text(copy.body)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -503,6 +505,52 @@ struct QuietDayCard: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardBackground()
+    }
+}
+
+/// Plain words for why there is no moment. Uses the last run summary when there is one.
+struct QuietCopy: Equatable {
+    var title: String
+    var body: String
+
+    init(_ summary: RunSummary?) {
+        guard let s = summary, let reason = s.reason else {
+            title = String(localized: "Nothing stood out yet")
+            body = String(localized: "Go live a little. We'll tell you when a moment stands out.")
+            return
+        }
+        let days = s.lookbackDays
+        let unread = s.failed > 0 ? " " + String(localized: "Couldn't read \(s.failed) more.") : ""
+        switch reason {
+        case .noPhotos:
+            title = String(localized: "No recent photos")
+            body = String(localized: "No photos from the last \(days) days. Go live a little.")
+        case .allFailed:
+            title = String(localized: "Couldn't read your photos")
+            body = String(localized: "Couldn't read \(s.failed) photos. Check your connection and try again.")
+        case .belowThreshold:
+            title = String(localized: "Nothing stood out yet")
+            body = String(localized: "Looked at \(s.analyzed) photos from the last \(days) days. None stood out enough yet.") + unread
+        case .nothingEligible:
+            title = String(localized: "Nothing new to suggest")
+            body = String(localized: "Looked at \(s.analyzed) photos from the last \(days) days. None of them can be suggested.") + unread
+        case .interrupted:
+            title = String(localized: "Not finished yet")
+            body = String(localized: "Looked at \(s.analyzed) of \(s.photosFound) photos. Tap Look Now to continue.")
+        case .alreadyDecidedToday:
+            title = String(localized: "Done for today")
+            body = String(localized: "You already decided today. Next moment tomorrow.")
+        case .cooldown:
+            title = String(localized: "Done for now")
+            if let next = s.nextAllowed {
+                body = String(localized: "Next moment after \(next.formatted(date: .omitted, time: .shortened)).")
+            } else {
+                body = String(localized: "Next moment later today.")
+            }
+        case .pendingSuggestion:
+            title = String(localized: "A moment is waiting")
+            body = String(localized: "Share or skip it first.")
+        }
     }
 }
 

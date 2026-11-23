@@ -280,7 +280,7 @@ private let day: TimeInterval = 86_400
             PhotoAsset(id: "trip", captureDate: day0, locationBucket: "beach"),
         ]
         // Older metadata, outside the analysis lookback: many visits at home.
-        assets += (4...13).map { PhotoAsset(id: "old\($0)", captureDate: day0.addingTimeInterval(-Double($0) * day), locationBucket: "home") }
+        assets += (8...17).map { PhotoAsset(id: "old\($0)", captureDate: day0.addingTimeInterval(-Double($0) * day), locationBucket: "home") }
         let analyzer = RecordingAnalyzer()
         let s = try await pipeline(assets, analyzer: analyzer).run(history: SuggestionHistory())
         #expect(s?.assetID == "trip")

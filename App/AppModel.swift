@@ -74,6 +74,9 @@ final class AppModel {
     private var manualScanTask: Task<Void, Never>?
     private var manualScanStop: StopSignal?
     private var didCleanUpExpiredPosts = false
+    #if DEBUG
+    private var didRunAnalysisOnLaunch = false
+    #endif
     var hasCompletedFirstScan: Bool {
         didSet { UserDefaults.standard.set(hasCompletedFirstScan, forKey: Self.firstScanKey) }
     }
@@ -88,6 +91,8 @@ final class AppModel {
     var placeNames: [String: String] = [:]
     /// Photos with a stored analysis result, for the privacy stats.
     var analyzedPhotoCount = 0
+    /// What the last run found, for the quiet card copy. From the cache at launch, then from each "Look Now".
+    var lastRunSummary: RunSummary?
     /// Debug demo content is on. Real services are not read.
     var isDemo = false
 
@@ -108,6 +113,8 @@ final class AppModel {
         hasCompletedFirstScan = UserDefaults.standard.bool(forKey: Self.firstScanKey)
         #if DEBUG
         applyDebugLaunchArguments()
+        // Do not wait for the scene to become active: a launch from devicectl may keep the screen off.
+        if Self.runAnalysisOnLaunch { Task { await self.refresh() } }
         #endif
     }
 
@@ -118,16 +125,31 @@ final class AppModel {
         photoAccess = await services.library.authorizationStatus()
         notificationAccess = await services.notifier.access()
         if photoAccess.canRead { services.startObservingLibrary() }
-        analyzedPhotoCount = (try? await services.analysisCache.records().count) ?? analyzedPhotoCount
+        await updateAnalyzedCount()
         let history = await services.history.load()
         pending = history.pending
         decidedToday = Self.decidedToday(in: history)
+        if lastRunSummary == nil, isOnboarded, photoAccess == .authorized {
+            lastRunSummary = try? await services.makePipeline().report(history: history).summary
+        }
+        #if DEBUG
+        if Self.runAnalysisOnLaunch, !didRunAnalysisOnLaunch, photoAccess == .authorized {
+            didRunAnalysisOnLaunch = true
+            findMomentsNow()
+        }
+        #endif
         // The 30-day rule, owner side. Once per launch, before the feed loads.
         if isOnboarded && !didCleanUpExpiredPosts {
             didCleanUpExpiredPosts = true
             await services.deleteExpiredPosts()
         }
         await refreshSharing()
+    }
+
+    /// Counts photos with an analysis result. Failed and excluded photos are not counted.
+    private func updateAnalyzedCount() async {
+        guard let records = try? await services.analysisCache.records() else { return }
+        analyzedPhotoCount = records.values.filter { $0.candidate != nil }.count
     }
 
     /// The last suggestion made today that the user shared or skipped.
@@ -388,6 +410,10 @@ final class AppModel {
                 let outcome = try await services.runWithProgress(shouldContinue: { !stop.isSet }) { p in
                     Task { @MainActor in self?.applyManual(p) }
                 }
+                await self?.applySummary(outcome.summary)
+                #if DEBUG
+                DebugRunLog.write(outcome)
+                #endif
                 if outcome.suggestion != nil {
                     result = .foundMoment
                 } else if !outcome.analysis.isComplete {
@@ -413,6 +439,10 @@ final class AppModel {
         manualScanTask?.cancel()
     }
 
+    private func applySummary(_ summary: RunSummary) {
+        lastRunSummary = summary
+    }
+
     private func applyManual(_ progress: AnalysisProgress) {
         guard isManualScanRunning else { return }
         manualScan = .running(progress)
@@ -422,7 +452,7 @@ final class AppModel {
         manualScanTask = nil
         manualScanStop = nil
         pending = await services.history.load().pending
-        analyzedPhotoCount = (try? await services.analysisCache.records().count) ?? analyzedPhotoCount
+        await updateAnalyzedCount()
         manualScan = .finished(result)
     }
 
@@ -460,6 +490,9 @@ final class AppModel {
             }
         }
     }
+
+    /// `-runAnalysisOnLaunch YES` starts "Look Now" once after launch, for on-device checks without UI.
+    static var runAnalysisOnLaunch: Bool { UserDefaults.standard.bool(forKey: "runAnalysisOnLaunch") }
 
     static var debugOnboardingPage: Int? {
         let page = UserDefaults.standard.integer(forKey: "onboardingPage")

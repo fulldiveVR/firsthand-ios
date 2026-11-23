@@ -60,6 +60,13 @@ struct ProfileView: View {
                     Button(action: SystemSettings.open) {
                         SettingsRowLabel(title: "Notifications", systemImage: "bell", value: model.notificationAccess == .allowed ? String(localized: "On") : String(localized: "Off"))
                     }
+                    #if DEBUG
+                    NavigationLink {
+                        ScoringLogView()
+                    } label: {
+                        Label("Scoring Log", systemImage: "list.number")
+                    }
+                    #endif
                 }
 
                 Section("About") {
