@@ -57,7 +57,9 @@ enum DemoContent {
             provenance: .likelyCamera,
             sceneLabels: ["lake", "sky", "outdoor"],
             locationBucket: placeBucket,
-            createdAt: todayAt(hour: 18, minute: 40)
+            createdAt: todayAt(hour: 18, minute: 40).addingTimeInterval(20 * 60),
+            reasons: [.newPlace, .withFriends, .scene("lake"), .today, .provenance(.likelyCamera)],
+            captureDate: todayAt(hour: 18, minute: 40)
         )
     }
 

@@ -154,6 +154,10 @@ public struct Suggestion: Sendable, Hashable, Codable, Identifiable {
     public var locationBucket: String?
     public var createdAt: Date
     public var decision: ShareDecision?
+    /// Why the AI picked this photo, in display order. Empty for suggestions saved by older versions.
+    public var reasons: [MomentReason]
+    /// When the photo was taken. `nil` for suggestions saved by older versions.
+    public var captureDate: Date?
 
     public init(
         id: UUID = UUID(),
@@ -164,7 +168,9 @@ public struct Suggestion: Sendable, Hashable, Codable, Identifiable {
         sceneLabels: Set<String> = [],
         locationBucket: String? = nil,
         createdAt: Date,
-        decision: ShareDecision? = nil
+        decision: ShareDecision? = nil,
+        reasons: [MomentReason] = [],
+        captureDate: Date? = nil
     ) {
         self.id = id
         self.assetID = assetID
@@ -175,6 +181,33 @@ public struct Suggestion: Sendable, Hashable, Codable, Identifiable {
         self.locationBucket = locationBucket
         self.createdAt = createdAt
         self.decision = decision
+        self.reasons = reasons
+        self.captureDate = captureDate
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, assetID, caption, score, provenance, sceneLabels, locationBucket, createdAt, decision, reasons, captureDate
+    }
+
+    /// Old history files have no `reasons` and no `captureDate`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        assetID = try c.decode(String.self, forKey: .assetID)
+        caption = try c.decodeIfPresent(String.self, forKey: .caption)
+        score = try c.decode(Double.self, forKey: .score)
+        provenance = try c.decode(ProvenanceStatus.self, forKey: .provenance)
+        sceneLabels = try c.decodeIfPresent(Set<String>.self, forKey: .sceneLabels) ?? []
+        locationBucket = try c.decodeIfPresent(String.self, forKey: .locationBucket)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        decision = try c.decodeIfPresent(ShareDecision.self, forKey: .decision)
+        reasons = try c.decodeIfPresent([MomentReason].self, forKey: .reasons) ?? []
+        captureDate = try c.decodeIfPresent(Date.self, forKey: .captureDate)
+    }
+
+    /// The reasons to show. Older suggestions without reasons still show their provenance.
+    public var displayReasons: [MomentReason] {
+        reasons.isEmpty ? [.provenance(provenance)] : reasons
     }
 }
 
