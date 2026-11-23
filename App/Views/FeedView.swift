@@ -1,10 +1,11 @@
 #if os(iOS)
-import CandidCore
+import FirsthandCore
 import SwiftUI
 
 /// Friends' posts, newest first. No like counts, no ranking.
 struct FeedView: View {
     @Environment(AppModel.self) private var model
+    @State private var confirmDelete: Post?
 
     var body: some View {
         NavigationStack {
@@ -13,17 +14,32 @@ struct FeedView: View {
                     ContentUnavailableView(
                         "Nothing yet",
                         systemImage: "rectangle.stack",
-                        description: Text("Moments your friends share appear here.")
+                        description: Text("Moments you and your friends share appear here.")
                     )
                 } else {
-                    List(model.feed) { post in
+                    List(model.feed, id: \.feedItemID) { post in
                         PostRow(post: post)
+                            .swipeActions {
+                                if post.authorID == CloudKitSharing.ownOwnerID {
+                                    Button("Delete", role: .destructive) { confirmDelete = post }
+                                }
+                            }
                     }
                     .listStyle(.plain)
                 }
             }
             .navigationTitle("Feed")
-            .refreshable { await model.refresh() }
+            .refreshable { await model.refreshSharing() }
+            .confirmationDialog(
+                "Delete this moment?",
+                isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
+                titleVisibility: .visible,
+                presenting: confirmDelete
+            ) { post in
+                Button("Delete", role: .destructive) { Task { await model.delete(post) } }
+            } message: { _ in
+                Text("Your friends will no longer see it.")
+            }
         }
     }
 }

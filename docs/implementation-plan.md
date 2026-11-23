@@ -35,8 +35,8 @@ Positioning: Retro (weekly, friends-only, subscription) is the closest analog. N
 
 ## 3. Current draft (done)
 
-- Repository with XcodeGen spec, SwiftUI app sources, and the `CandidCore` Swift package.
-- `CandidCore`: models, protocols, moment scorer, suggestion engine (daily cap, cooldown, no repeats), resumable analysis queue, pipeline. 31 tests pass with `swift test`.
+- Repository with XcodeGen spec, SwiftUI app sources, and the `FirsthandCore` Swift package.
+- `FirsthandCore`: models, protocols, moment scorer, suggestion engine (daily cap, cooldown, no repeats), resumable analysis queue, pipeline. 31 tests pass with `swift test`.
 - App: onboarding, Sign in with Apple, Today card (Share / Skip), Feed, Friends, Settings. Adapters for PhotoKit, Vision, notifications, Face ID. CloudKit is a stub.
 - Not verified: the iOS app has never been compiled for a device or run. This Mac has no Xcode.
 
@@ -57,7 +57,7 @@ Total: about 8-10 weeks for one iOS engineer.
 
 | ID | Question | Recommendation |
 |---|---|---|
-| Q1 | Product name and bundle id. "Candid" is a codename. | Pick before P3, because CloudKit container ids cannot be renamed. |
+| Q1 | Product name and bundle id. | Decided 2026-11-22: "Firsthand", bundle id `com.fulldive.firsthand`, iCloud container `iCloud.com.fulldive.firsthand`. |
 | Q2 | Cadence: one pick per day or one per week? | Start with at most one per day, only when a good moment exists. Retro proves weekly works. Test both in P5. |
 | Q3 | Minimum iOS version. The draft targets iOS 18. | iOS 26. It gives `BGContinuedProcessingTask` and Foundation Models, and by 2026-11 most active iPhones run it. |
 | Q4 | Accept a tiny push relay (no photos, no feed) if CloudKit alerts fail in P4? | Yes. It is the only reliable way to send visible friend alerts. |

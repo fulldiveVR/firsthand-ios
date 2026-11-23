@@ -23,13 +23,17 @@ public struct SuggestionHistory: Sendable, Codable, Equatable {
 }
 
 public struct SuggestionPolicy: Sendable {
+    /// Product rule: at most one suggestion per calendar day.
     public var dailyCap: Int
     /// Minimum time between two suggestions.
     public var cooldown: TimeInterval
-    /// Candidates below this score are not worth interrupting the user.
+    /// Minimum quality threshold. Candidates below this score are not worth interrupting the user.
+    /// When nothing passes, there is no suggestion and Today stays empty.
+    /// With default weights a plain, decent photo (aesthetic 0.6, likely camera, taken now) scores about 0.49.
+    /// It needs people, an outdoor or activity scene, or a new place to pass.
     public var minimumScore: Double
 
-    public init(dailyCap: Int = 1, cooldown: TimeInterval = 12 * 60 * 60, minimumScore: Double = 0.3) {
+    public init(dailyCap: Int = 1, cooldown: TimeInterval = 12 * 60 * 60, minimumScore: Double = 0.55) {
         self.dailyCap = dailyCap
         self.cooldown = cooldown
         self.minimumScore = minimumScore
@@ -46,6 +50,11 @@ public struct SuggestionEngine: Sendable {
         self.calendar = calendar
     }
 
+    /// Picks the best photo of the best qualifying moment.
+    public func pick(from moments: [RankedMoment], history: SuggestionHistory, now: Date) -> Suggestion? {
+        pick(from: moments.map(\.best), history: history, now: now)
+    }
+
     public func pick(from scored: [ScoredCandidate], history: SuggestionHistory, now: Date) -> Suggestion? {
         // An undecided suggestion blocks new ones. There is never a second option.
         if history.pending != nil { return nil }
@@ -60,9 +69,7 @@ public struct SuggestionEngine: Sendable {
         let usedAssets = Set(history.suggestions.map(\.assetID))
         let best = scored
             .filter { $0.isEligible && $0.score >= policy.minimumScore && !usedAssets.contains($0.candidate.assetID) }
-            .min {
-                $0.score != $1.score ? $0.score > $1.score : $0.candidate.assetID < $1.candidate.assetID
-            }
+            .min(by: MomentScorer.ranksHigher)
 
         guard let best else { return nil }
         let c = best.candidate
