@@ -17,6 +17,11 @@ struct SignInWithAppleView: View {
                 case .success(let authorization):
                     guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else { return }
                     // TODO: Store the user id in the Keychain instead of UserDefaults.
+                    // Apple sends the name only on the first sign in.
+                    if let name = credential.fullName {
+                        let formatted = PersonNameComponentsFormatter().string(from: name)
+                        if !formatted.isEmpty { model.userName = formatted }
+                    }
                     model.appleUserID = credential.user
                 case .failure:
                     failed = true

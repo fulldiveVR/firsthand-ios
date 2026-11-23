@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
 
     var body: some View {
@@ -29,7 +30,11 @@ struct SettingsView: View {
                     Text("Removes your suggestions, analysis progress, everything you shared and your friend connections. Your photo library is not changed.")
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
             .confirmationDialog("Delete all data?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { Task { await model.deleteAllData() } }
             }

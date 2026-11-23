@@ -5,6 +5,7 @@ import SwiftUI
 
 struct FriendsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     @State private var contactSheet = false
     @State private var manageShare: CKShare?
     @State private var confirmRemove: Friendship?
@@ -53,6 +54,10 @@ struct FriendsView: View {
                 }
             }
             .navigationTitle("Friends")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
             .refreshable { await model.refreshSharing() }
             .sheet(isPresented: $contactSheet) { InviteContactSheet() }
             .sheet(item: $manageShare) { share in

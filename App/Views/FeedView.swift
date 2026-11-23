@@ -3,35 +3,28 @@ import FirsthandCore
 import SwiftUI
 
 /// Friends' posts, newest first. No like counts, no ranking.
-struct FeedView: View {
+struct FeedSection: View {
     @Environment(AppModel.self) private var model
     @State private var confirmDelete: Post?
 
     var body: some View {
-        NavigationStack {
-            Group {
-                let posts = model.visibleFeed()
-                if posts.isEmpty {
-                    ContentUnavailableView(
-                        "Nothing yet",
-                        systemImage: "rectangle.stack",
-                        description: Text("Moments you and your friends share appear here for 30 days.")
-                    )
-                } else {
-                    List(posts, id: \.feedItemID) { post in
-                        PostRow(post: post)
-                            .swipeActions {
-                                if post.authorID == CloudKitSharing.ownOwnerID {
-                                    Button("Delete", role: .destructive) { confirmDelete = post }
-                                }
+        VStack(alignment: .leading, spacing: 16) {
+            let posts = model.visibleFeed()
+            if posts.isEmpty {
+                Text("Moments you and your friends share appear here for 30 days.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(posts, id: \.feedItemID) { post in
+                    PostRow(post: post)
+                        .contextMenu {
+                            if post.authorID == CloudKitSharing.ownOwnerID {
+                                Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = post }
                             }
-                    }
-                    .listStyle(.plain)
+                        }
                 }
             }
-            .navigationTitle("Feed")
-            .refreshable { await model.refreshSharing() }
-            .confirmationDialog(
+        }
+        .confirmationDialog(
                 "Delete this moment?",
                 isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                 titleVisibility: .visible,
@@ -41,7 +34,6 @@ struct FeedView: View {
             } message: { _ in
                 Text("Your friends will no longer see it.")
             }
-        }
     }
 }
 

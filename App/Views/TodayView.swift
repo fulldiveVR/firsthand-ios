@@ -2,25 +2,19 @@
 import FirsthandCore
 import SwiftUI
 
-struct TodayView: View {
+struct TodaySection: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    if model.photoAccess.isDegraded {
-                        LimitedAccessBanner()
-                    }
-                    if let suggestion = model.pending {
-                        SuggestionCard(suggestion: suggestion)
-                    } else {
-                        EmptyTodayCard()
-                    }
-                }
-                .padding()
+        VStack(spacing: 16) {
+            if model.photoAccess.isDegraded {
+                LimitedAccessBanner()
             }
-            .navigationTitle("Today")
+            if let suggestion = model.pending {
+                SuggestionCard(suggestion: suggestion)
+            } else {
+                EmptyTodayCard()
+            }
         }
     }
 }
@@ -49,7 +43,7 @@ private struct EmptyTodayCard: View {
 
             if model.hasFriends {
                 Button {
-                    model.selectedTab = .feed
+                    model.homeSheet = nil
                 } label: {
                     Label("See friends' moments", systemImage: "rectangle.stack")
                         .frame(maxWidth: .infinity)

@@ -42,8 +42,10 @@ final class AppModel {
         case denied
     }
 
-    enum AppTab: Hashable {
-        case today, feed, friends, settings
+    /// Sheets on top of the Moments home screen.
+    enum HomeSheet: String, Identifiable {
+        case friends, profile
+        var id: String { rawValue }
     }
 
     let services: AppServices
@@ -62,7 +64,11 @@ final class AppModel {
     var firstScan: FirstScanState = .notStarted
     var manualScan: ManualScanState = .idle
     var notificationAccess: NotificationAccess = .notDetermined
-    var selectedTab: AppTab = .today
+    var homeSheet: HomeSheet?
+    /// The name from Sign in with Apple, shown on the profile. Friends see the CloudKit name.
+    var userName: String? {
+        didSet { UserDefaults.standard.set(userName, forKey: Self.userNameKey) }
+    }
     private var manualScanTask: Task<Void, Never>?
     private var manualScanStop: StopSignal?
     private var didCleanUpExpiredPosts = false
@@ -91,10 +97,12 @@ final class AppModel {
 
     private static let userKey = "appleUserID"
     private static let firstScanKey = "hasCompletedFirstScan"
+    private static let userNameKey = "userName"
 
     init(services: AppServices) {
         self.services = services
         appleUserID = UserDefaults.standard.string(forKey: Self.userKey)
+        userName = UserDefaults.standard.string(forKey: Self.userNameKey)
         hasCompletedFirstScan = UserDefaults.standard.bool(forKey: Self.firstScanKey)
         #if DEBUG
         applyDebugLaunchArguments()
@@ -338,8 +346,11 @@ final class AppModel {
     func deleteAllData() async {
         try? await services.deleteAllLocalAndSharedData()
         appleUserID = nil
+        userName = nil
         hasCompletedFirstScan = false
         pending = nil
+        decidedToday = nil
+        homeSheet = nil
         feed = []
         friends = []
         friendships = []
