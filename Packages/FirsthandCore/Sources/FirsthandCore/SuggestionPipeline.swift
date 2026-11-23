@@ -58,6 +58,7 @@ public struct SuggestionPipeline: Sendable {
         let since = now.addingTimeInterval(-lookback)
         let result = try await queue.run(since: since, shouldContinue: shouldContinue, progress: progress)
         guard result.isComplete else { return PipelineOutcome(analysis: result, suggestion: nil) }
+        progress(AnalysisProgress(completed: result.pendingAtStart, total: result.pendingAtStart, phase: .choosing))
 
         let placeWindow = ranker.scorer.weights.newPlaceWindow
         let places = PlaceHistory(assets: try await queue.metadata(since: since.addingTimeInterval(-placeWindow), limit: placeHistoryLimit))

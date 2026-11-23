@@ -10,10 +10,36 @@ public struct AnalysisRunResult: Sendable, Equatable {
     public var candidates: [PhotoCandidate]
 }
 
-/// Progress of one run, for UI such as a `BGContinuedProcessingTask`.
+/// The step of a run that the UI shows.
+public enum AnalysisPhase: Sendable, Equatable {
+    /// Reading photo metadata to find new or changed photos.
+    case scanning
+    /// Analyzing photos one by one. `completed` and `total` count photos.
+    case analyzing
+    /// Grouping moments and picking at most one suggestion.
+    case choosing
+}
+
+/// Progress of one run, for UI such as a `BGContinuedProcessingTask` or the "Find moments now" view.
 public struct AnalysisProgress: Sendable, Equatable {
     public var completed: Int
     public var total: Int
+    public var phase: AnalysisPhase
+
+    public init(completed: Int, total: Int, phase: AnalysisPhase = .analyzing) {
+        self.completed = completed
+        self.total = total
+        self.phase = phase
+    }
+
+    /// 0...1. With nothing to analyze, scanning is 0 and the later phases are 1.
+    public var fractionCompleted: Double {
+        guard total > 0 else { return phase == .scanning ? 0 : 1 }
+        return min(1, max(0, Double(completed) / Double(total)))
+    }
+
+    /// Whole percent, 0...100.
+    public var percent: Int { Int((fractionCompleted * 100).rounded(.down)) }
 }
 
 /// Analyzes only new or changed photos. Each result goes to the analysis cache,
@@ -44,6 +70,7 @@ public actor AnalysisQueue {
         shouldContinue: @Sendable () -> Bool = { true },
         progress: @Sendable (AnalysisProgress) -> Void = { _ in }
     ) async throws -> AnalysisRunResult {
+        progress(AnalysisProgress(completed: 0, total: 0, phase: .scanning))
         let assets = try await library.recentAssets(since: since, limit: limit)
         try await cache.prune(capturedBefore: since)
         return try await analyze(assets, shouldContinue: shouldContinue, progress: progress)

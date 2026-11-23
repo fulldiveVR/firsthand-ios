@@ -34,6 +34,8 @@ public protocol ShareService: Sendable {
     func myPosts() async throws -> [Post]
     /// Deletes one of this user's posts. Friends lose it on their next sync.
     func deletePost(_ id: Post.ID) async throws
+    /// Deletes this user's posts that are older than the 30-day rule allows. Returns how many were deleted.
+    func deleteExpiredPosts(now: Date) async throws -> Int
     /// Removes everything this user published and every local copy of friends' posts.
     func deleteAllData() async throws
 }
