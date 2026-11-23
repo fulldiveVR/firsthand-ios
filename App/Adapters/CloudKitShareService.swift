@@ -19,6 +19,8 @@ struct CloudKitShareService: ShareService {
 
     func deletePost(_ id: Post.ID) async throws { try await sharing.deletePost(id) }
 
+    func deleteExpiredPosts(now: Date) async throws -> Int { try await sharing.deleteExpiredPosts(now: now) }
+
     func deleteAllData() async throws { try await sharing.deleteAll() }
 }
 

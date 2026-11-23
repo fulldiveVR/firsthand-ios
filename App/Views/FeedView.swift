@@ -10,14 +10,15 @@ struct FeedView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.feed.isEmpty {
+                let posts = model.visibleFeed()
+                if posts.isEmpty {
                     ContentUnavailableView(
                         "Nothing yet",
                         systemImage: "rectangle.stack",
-                        description: Text("Moments you and your friends share appear here.")
+                        description: Text("Moments you and your friends share appear here for 30 days.")
                     )
                 } else {
-                    List(model.feed, id: \.feedItemID) { post in
+                    List(posts, id: \.feedItemID) { post in
                         PostRow(post: post)
                             .swipeActions {
                                 if post.authorID == CloudKitSharing.ownOwnerID {
@@ -63,9 +64,30 @@ private struct PostRow: View {
             if let caption = post.caption {
                 Text(caption)
             }
-            ProvenanceLabel(status: post.provenance)
+            HStack {
+                ProvenanceLabel(status: post.provenance)
+                Spacer()
+                ExpiryLabel(post: post)
+            }
         }
         .padding(.vertical, 8)
+    }
+}
+/// The 30-day rule, shown quietly on every post.
+private struct ExpiryLabel: View {
+    let post: Post
+
+    var body: some View {
+        let days = post.daysLeft(now: Date())
+        Group {
+            if days <= 1 {
+                Text("Disappears within a day")
+            } else {
+                Text("Disappears in \(days) days")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.tertiary)
     }
 }
 #endif

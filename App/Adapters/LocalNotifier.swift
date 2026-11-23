@@ -8,6 +8,14 @@ struct LocalNotifier: Notifier {
         (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
     }
 
+    func access() async -> AppModel.NotificationAccess {
+        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+        case .notDetermined: .notDetermined
+        case .denied: .denied
+        default: .allowed
+        }
+    }
+
     /// The notification never contains the photo, so nothing shows on the lock screen.
     func notifySuggestionReady(_ suggestion: Suggestion) async {
         let content = UNMutableNotificationContent()

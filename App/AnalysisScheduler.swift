@@ -32,6 +32,8 @@ enum AnalysisScheduler {
         schedule()
         let stop = StopFlag()
         let work = Task {
+            // The 30-day rule runs here too, so expired posts leave iCloud even if the app is not opened.
+            await services.deleteExpiredPosts()
             let suggestion = try? await services.runAnalysis(shouldContinue: { !stop.isSet })
             return suggestion
         }
@@ -106,14 +108,11 @@ enum AnalysisScheduler {
         task.progress.completedUnitCount = 0
 
         let work = Task {
-            try await services.runFirstScan(shouldContinue: { !stop.isSet }) { p in
+            try await services.runWithProgress(shouldContinue: { !stop.isSet }) { p in
                 // The system expires a task that shows no progress, so report every photo.
                 task.progress.totalUnitCount = Int64(max(p.total, 1))
                 task.progress.completedUnitCount = Int64(p.completed)
-                task.updateTitle(
-                    String(localized: "Finding your moments"),
-                    subtitle: String(localized: "\(p.completed) of \(p.total) photos")
-                )
+                task.updateTitle(String(localized: "Finding your moments"), subtitle: p.subtitle)
                 notify(.progress(p))
             }
         }
@@ -133,7 +132,7 @@ enum AnalysisScheduler {
 
     private static func runFirstScanInForeground(services: AppServices) {
         Task {
-            let outcome = try? await services.runFirstScan { notify(.progress($0)) }
+            let outcome = try? await services.runWithProgress { notify(.progress($0)) }
             let complete = outcome?.analysis.isComplete ?? false
             if !complete { schedule() }
             notify(.finished(outcome?.suggestion, complete: complete))

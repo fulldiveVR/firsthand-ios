@@ -3,6 +3,7 @@ import FirsthandCore
 import CloudKit
 import Foundation
 import Observation
+import Synchronization
 
 @MainActor
 @Observable
@@ -15,7 +16,33 @@ final class AppModel {
 
     enum FirstScanState: Equatable {
         case notStarted
-        case scanning(completed: Int, total: Int)
+        case scanning(AnalysisProgress)
+    }
+
+    /// "Find moments now": a foreground analysis pass that the user starts from Today or Settings.
+    enum ManualScanState: Equatable {
+        case idle
+        case running(AnalysisProgress)
+        case finished(ManualScanResult)
+    }
+
+    enum ManualScanResult: Equatable {
+        case foundMoment
+        case nothingYet
+        case stopped
+        case busy
+        case needsFullAccess
+        case failed
+    }
+
+    enum NotificationAccess: Equatable {
+        case notDetermined
+        case allowed
+        case denied
+    }
+
+    enum AppTab: Hashable {
+        case today, feed, friends, settings
     }
 
     let services: AppServices
@@ -32,6 +59,12 @@ final class AppModel {
     var feed: [Post] = []
     var shareState: ShareState = .idle
     var firstScan: FirstScanState = .notStarted
+    var manualScan: ManualScanState = .idle
+    var notificationAccess: NotificationAccess = .notDetermined
+    var selectedTab: AppTab = .today
+    private var manualScanTask: Task<Void, Never>?
+    private var manualScanStop: StopSignal?
+    private var didCleanUpExpiredPosts = false
     var hasCompletedFirstScan: Bool {
         didSet { UserDefaults.standard.set(hasCompletedFirstScan, forKey: Self.firstScanKey) }
     }
@@ -54,16 +87,28 @@ final class AppModel {
         self.services = services
         appleUserID = UserDefaults.standard.string(forKey: Self.userKey)
         hasCompletedFirstScan = UserDefaults.standard.bool(forKey: Self.firstScanKey)
+        #if DEBUG
+        applyDebugLaunchArguments()
+        #endif
     }
 
     var isOnboarded: Bool { appleUserID != nil && photoAccess.canRead && hasCompletedFirstScan }
 
     func refresh() async {
         photoAccess = await services.library.authorizationStatus()
+        notificationAccess = await services.notifier.access()
         if photoAccess.canRead { services.startObservingLibrary() }
         pending = await services.history.load().pending
+        // The 30-day rule, owner side. Once per launch, before the feed loads.
+        if isOnboarded && !didCleanUpExpiredPosts {
+            didCleanUpExpiredPosts = true
+            await services.deleteExpiredPosts()
+        }
         await refreshSharing()
     }
+
+    /// Feed posts that are not expired at `now`. The feed view reads this, so a post never shows after 30 days.
+    func visibleFeed(now: Date = Date()) -> [Post] { Post.visible(feed, now: now) }
 
     /// Friends from CloudKit, then friends' posts and my posts.
     func refreshSharing() async {
@@ -73,7 +118,7 @@ final class AppModel {
         }
         let theirs = (try? await services.shareService.feed()) ?? feed.filter { $0.authorID != CloudKitSharing.ownOwnerID }
         let mine = (try? await services.shareService.myPosts()) ?? feed.filter { $0.authorID == CloudKitSharing.ownOwnerID }
-        feed = Post.chronological(theirs + mine)
+        feed = Post.visible(theirs + mine, now: Date())
     }
 
     func attachSharingInbox() {
@@ -172,12 +217,20 @@ final class AppModel {
         }
     }
 
+    /// Only the Photos page in onboarding calls this, from its button.
     func requestPhotoAccess() async {
         photoAccess = await services.library.requestAuthorization()
-        _ = await services.notifier.requestAuthorization()
         if photoAccess.canRead { services.startObservingLibrary() }
         AnalysisScheduler.schedule()
     }
+
+    /// Only the Notifications page in onboarding calls this, from its button.
+    func requestNotificationAccess() async {
+        _ = await services.notifier.requestAuthorization()
+        notificationAccess = await services.notifier.access()
+    }
+
+    var hasFriends: Bool { !friendships.isEmpty }
 
     /// The user taps "Find my moments". The scan continues if the user leaves the app.
     func startFirstScan() {
@@ -187,7 +240,7 @@ final class AppModel {
             hasCompletedFirstScan = true
             return
         }
-        firstScan = .scanning(completed: 0, total: 0)
+        firstScan = .scanning(AnalysisProgress(completed: 0, total: 0, phase: .scanning))
         AnalysisScheduler.startFirstScan(services: services) { [weak self] event in
             Task { @MainActor in self?.apply(event) }
         }
@@ -196,7 +249,8 @@ final class AppModel {
     private func apply(_ event: AnalysisScheduler.FirstScanEvent) {
         switch event {
         case .progress(let p):
-            firstScan = .scanning(completed: p.completed, total: p.total)
+            guard firstScan != .notStarted else { return }
+            firstScan = .scanning(p)
         case .finished(let suggestion, _):
             // An unfinished scan continues in the charging task. Onboarding ends either way.
             if let suggestion { pending = suggestion }
@@ -252,11 +306,101 @@ final class AppModel {
         friendships = []
     }
 
+    // MARK: Find moments now
+
+    var isManualScanRunning: Bool {
+        if case .running = manualScan { true } else { false }
+    }
+
+    /// Runs one analysis pass in the foreground with progress. The AI still picks: the user never chooses a photo.
+    func findMomentsNow() {
+        guard !isManualScanRunning else { return }
+        guard photoAccess == .authorized else {
+            manualScan = .finished(.needsFullAccess)
+            return
+        }
+        let stop = StopSignal()
+        manualScanStop = stop
+        manualScan = .running(AnalysisProgress(completed: 0, total: 0, phase: .scanning))
+        let services = services
+        manualScanTask = Task { [weak self] in
+            let result: ManualScanResult
+            do {
+                let outcome = try await services.runWithProgress(shouldContinue: { !stop.isSet }) { p in
+                    Task { @MainActor in self?.applyManual(p) }
+                }
+                if outcome.suggestion != nil {
+                    result = .foundMoment
+                } else if !outcome.analysis.isComplete {
+                    result = .stopped
+                } else {
+                    result = .nothingYet
+                }
+            } catch AppServices.PassError.busy {
+                result = .busy
+            } catch AppServices.PassError.needsFullAccess {
+                result = .needsFullAccess
+            } catch is CancellationError {
+                result = .stopped
+            } catch {
+                result = .failed
+            }
+            await self?.finishManual(result)
+        }
+    }
+
+    func cancelFindMoments() {
+        manualScanStop?.set()
+        manualScanTask?.cancel()
+    }
+
+    private func applyManual(_ progress: AnalysisProgress) {
+        guard isManualScanRunning else { return }
+        manualScan = .running(progress)
+    }
+
+    private func finishManual(_ result: ManualScanResult) async {
+        manualScanTask = nil
+        manualScanStop = nil
+        pending = await services.history.load().pending
+        manualScan = .finished(result)
+    }
+
+    // MARK: Debug launch arguments
+
     #if DEBUG
-    func analyzeNow() async {
-        _ = try? await services.runAnalysis()
-        await refresh()
+    /// Screenshot and test helpers. Debug builds only.
+    /// `-resetOnboarding YES` starts onboarding again. `-skipOnboarding YES` opens the tabs.
+    /// `-onboardingPage N` (1-based) opens that onboarding page. `-demoProgress YES` shows a fixed progress state.
+    private func applyDebugLaunchArguments() {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "resetOnboarding") {
+            appleUserID = nil
+            hasCompletedFirstScan = false
+        }
+        if defaults.bool(forKey: "skipOnboarding") {
+            if appleUserID == nil { appleUserID = "debug-user" }
+            hasCompletedFirstScan = true
+        }
+        if defaults.bool(forKey: "demoProgress") {
+            if appleUserID == nil { appleUserID = "debug-user" }
+            let demo = AnalysisProgress(completed: 37, total: 120, phase: .analyzing)
+            firstScan = .scanning(demo)
+            manualScan = .running(demo)
+        }
+    }
+
+    static var debugOnboardingPage: Int? {
+        let page = UserDefaults.standard.integer(forKey: "onboardingPage")
+        return page > 0 ? page - 1 : nil
     }
     #endif
+}
+
+/// A stop request that a `shouldContinue` closure can read from any thread.
+final class StopSignal: Sendable {
+    private let value = Mutex(false)
+    var isSet: Bool { value.withLock { $0 } }
+    func set() { value.withLock { $0 = true } }
 }
 #endif

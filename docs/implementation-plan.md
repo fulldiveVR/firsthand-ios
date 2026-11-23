@@ -32,6 +32,7 @@ Positioning: Retro (weekly, friends-only, subscription) is the closest analog. N
 | D5 | Friendship = invite link (Messages, AirDrop, QR) + accept. Cap of 50 friends. | CloudKit cannot add a participant silently. Max 100 participants per share. |
 | D6 | No auto-send, no like counts, no public profiles, no ads. | The product promise and the anti-doomscroll position. |
 | D7 | No pulse or HealthKit. Sign in with Apple identifies the account. Face ID confirms the share. | HealthKit is not allowed for liveness. Biometrics give the app only a yes or no. |
+| D8 | A shared post expires 30 days after it was shared. Friends' apps hide it, the owner's app deletes the record from its zone on launch and in the background task. | Keeps the feed calm and limits what stays in the poster's iCloud. |
 
 ## 3. Current draft (done)
 
