@@ -453,6 +453,11 @@ final class AppModel {
             let demo = AnalysisProgress(completed: 37, total: 120, phase: .analyzing)
             firstScan = .scanning(demo)
             manualScan = .running(demo)
+            // With demo content this shows the live first scan page of onboarding.
+            if isDemo {
+                hasCompletedFirstScan = false
+                manualScan = .idle
+            }
         }
     }
 

@@ -2,101 +2,184 @@
 import FirsthandCore
 import SwiftUI
 
-/// Onboarding, one idea per page. Each system prompt opens only from a button on the page that explains it.
+/// Onboarding, one idea per page, pushed in a NavigationStack with the system back button.
+/// Each system prompt opens only from a button on the page that explains it.
 struct OnboardingView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var page: OnboardingPage = Self.initialPage
-    @State private var forward = true
+    @State private var path: [OnboardingPage] = Self.initialPath
 
-    private static var initialPage: OnboardingPage {
+    private static var initialPath: [OnboardingPage] {
         #if DEBUG
-        if let index = AppModel.debugOnboardingPage, let page = OnboardingPage(rawValue: index) { return page }
+        if let index = AppModel.debugOnboardingPage, index > 0 {
+            return OnboardingPage.allCases.filter { $0.rawValue > 0 && $0.rawValue <= index }
+        }
         #endif
-        return .welcome
+        return []
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollView {
-                VStack(spacing: 28) {
-                    page.illustration
-                    OnboardingText(page: page)
+        NavigationStack(path: $path) {
+            OnboardingPageView(page: .welcome, go: go)
+                .navigationDestination(for: OnboardingPage.self) { page in
+                    OnboardingPageView(page: page, go: go)
+                        .modifier(OnboardingPush())
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .id(page)
-            .transition(pageTransition)
-            footer
-                .padding(.horizontal, 24)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
-        }
-        .background {
-            LinearGradient(
-                colors: [page.palette.primary.opacity(0.16), Color(.systemBackground)],
-                startPoint: .top, endPoint: .center
-            )
-            .ignoresSafeArea()
-            .animation(.easeInOut, value: page)
         }
         .onChange(of: model.appleUserID) { _, id in
-            if id != nil && page == .signIn { next() }
+            if id != nil && (path.last ?? .welcome) == .signIn { go(.firstScan) }
         }
     }
 
-    // MARK: Navigation
+    /// Pushes a later page, or pops back to an earlier one.
+    private func go(_ target: OnboardingPage) {
+        if target == .welcome {
+            path = []
+        } else if let index = path.firstIndex(of: target) {
+            path = Array(path.prefix(through: index))
+        } else {
+            path.append(target)
+        }
+    }
+}
+
+/// Reduce Motion: a cross-fade push on iOS 27, the default push on iOS 26.
+private struct OnboardingPush: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if reduceMotion, #available(iOS 27, *) {
+            content.navigationTransition(.crossFade)
+        } else {
+            content
+        }
+    }
+}
+
+enum OnboardingPage: Int, CaseIterable, Hashable {
+    case welcome, howItWorks, privacy, photos, notifications, sharing, signIn, firstScan
+
+    var next: OnboardingPage? { OnboardingPage(rawValue: rawValue + 1) }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .welcome: "\(AppInfo.name)"
+        case .howItWorks: "You just say yes or no"
+        case .privacy: "Stays on your iPhone"
+        case .photos: "Allow access to recent photos"
+        case .notifications: "Know when a moment is ready"
+        case .sharing: "Friends only. Gone in 30 days."
+        case .signIn: "Sign in with Apple"
+        case .firstScan: "Finding your first moment"
+        }
+    }
+
+    var message: LocalizedStringKey {
+        switch self {
+        case .welcome: "One real moment a day, shared only with friends, only when you say yes."
+        case .howItWorks: "\(AppInfo.name) picks one moment from your recent photos. You never scroll or choose."
+        case .privacy: "Photos are analyzed on device. Nothing leaves without Face ID."
+        case .photos: "\(AppInfo.name) needs full access to find new moments."
+        case .notifications: "At most once a day. Never shows the photo."
+        case .sharing: "Share with up to \(FriendRoster.defaultLimit) people you invite. Every moment disappears after 30 days."
+        case .signIn: "Friends see only the name you choose."
+        case .firstScan: "You can leave the app. We'll let you know."
+        }
+    }
+}
+
+/// One page: hero, centered title and one or two sentences, buttons pinned at the bottom.
+private struct OnboardingPageView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var typeSize
+    let page: OnboardingPage
+    var go: (OnboardingPage) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 12)
+                    OnboardingHero(page: page)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: typeSize.isAccessibilitySize ? 180 : 280)
+                    VStack(spacing: 12) {
+                        Text(page.title)
+                            .font(.largeTitle.bold())
+                        Text(page.message)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 36)
+                    if page == .welcome {
+                        FeatureRows()
+                            .padding(.top, 32)
+                    }
+                    Spacer(minLength: 12)
+                }
+                .padding(.horizontal, 32)
+                .frame(minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .safeAreaBar(edge: .bottom) {
+            OnboardingActions(page: page, go: go)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+        }
+        .background(Color(.systemBackground))
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isScanning)
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
 
     private var isScanning: Bool {
         if case .scanning = model.firstScan { true } else { false }
     }
+}
 
-    private var header: some View {
-        HStack {
-            if page != .welcome && !isScanning {
-                Button {
-                    go(to: page.previous)
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
-                }
-                .labelStyle(.titleAndIcon)
-            }
-            Spacer()
-            PageIndicator(current: page.rawValue, count: OnboardingPage.allCases.count, tint: page.palette.primary)
+/// Three short feature rows, welcome page only.
+private struct FeatureRows: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            row("sparkles", "One moment a day", "The AI picks it from your recent photos.")
+            row("faceid", "Only when you say yes", "Face ID confirms every share.")
+            row("person.2.fill", "Friends only", "No public profile, no likes.")
         }
-        .frame(minHeight: 44)
-        .padding(.horizontal, 20)
+        .frame(maxWidth: 400, alignment: .leading)
     }
 
-    private var pageTransition: AnyTransition {
-        if reduceMotion { return .opacity }
-        return .asymmetric(
-            insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
-            removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)
-        )
+    private func row(_ symbol: String, _ title: LocalizedStringKey, _ detail: LocalizedStringKey) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: symbol)
+                .font(.system(.title2))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.tint)
+                .frame(width: 36)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
+}
 
-    private func go(to target: OnboardingPage?) {
-        guard let target else { return }
-        forward = target.rawValue > page.rawValue
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.4)) { page = target }
-    }
+/// Bottom buttons. Permission logic is the same as before the redesign.
+private struct OnboardingActions: View {
+    @Environment(AppModel.self) private var model
+    let page: OnboardingPage
+    var go: (OnboardingPage) -> Void
 
-    private func next() { go(to: page.next) }
-
-    // MARK: Actions per page
-
-    @ViewBuilder
-    private var footer: some View {
-        VStack(spacing: 10) {
+    var body: some View {
+        VStack(spacing: 12) {
             switch page {
-            case .welcome:
-                primary("Get Started", action: next)
-            case .howItWorks, .privacy, .sharing:
+            case .welcome, .howItWorks, .privacy, .sharing:
                 primary("Continue", action: next)
             case .photos:
                 photosActions
@@ -108,22 +191,28 @@ struct OnboardingView: View {
                 firstScanActions
             }
         }
+        .tint(.accentColor)
+        .frame(maxWidth: 500)
+    }
+
+    private func next() {
+        if let next = page.next { go(next) }
     }
 
     private func primary(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title).frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.glassProminent)
         .controlSize(.large)
     }
 
     private func secondary(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderless)
-        .controlSize(.large)
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.body.weight(.medium))
+            .foregroundStyle(.tint)
+            .frame(minHeight: 44)
     }
 
     @ViewBuilder
@@ -140,17 +229,11 @@ struct OnboardingView: View {
             StatusLine(text: "Full photo access is on.", symbol: "checkmark.circle.fill", color: .green)
             primary("Continue", action: next)
         case .limited:
-            StatusLine(
-                text: "Limited access: the AI sees only the photos you selected and cannot find new moments.",
-                symbol: "exclamationmark.circle.fill", color: .orange
-            )
-            primary("Allow Full Access in Settings") { SystemSettings.open() }
+            StatusLine(text: "With limited access, \(AppInfo.name) can't find new moments.", symbol: "exclamationmark.circle.fill", color: .orange)
+            primary("Allow Full Access") { SystemSettings.open() }
             secondary("Continue with Limited Access", action: next)
         case .denied:
-            StatusLine(
-                text: "Photo access is off. \(AppInfo.name) needs it to find moments. In Settings, choose Photos, then Full Access.",
-                symbol: "xmark.circle.fill", color: .red
-            )
+            StatusLine(text: "Photo access is off. In Settings, choose Photos, then Full Access.", symbol: "xmark.circle.fill", color: .red)
             primary("Open Settings") { SystemSettings.open() }
         }
     }
@@ -170,10 +253,7 @@ struct OnboardingView: View {
             StatusLine(text: "Notifications are on.", symbol: "checkmark.circle.fill", color: .green)
             primary("Continue", action: next)
         case .denied:
-            StatusLine(
-                text: "Notifications are off. You can turn them on later in Settings.",
-                symbol: "bell.slash.fill", color: .secondary
-            )
+            StatusLine(text: "Notifications are off. You can turn them on in Settings.", symbol: "bell.slash.fill", color: .secondary)
             primary("Continue", action: next)
         }
     }
@@ -192,203 +272,18 @@ struct OnboardingView: View {
     private var firstScanActions: some View {
         if !model.photoAccess.canRead {
             StatusLine(text: "Photo access is needed first.", symbol: "photo.badge.exclamationmark", color: .orange)
-            primary("Back to Photo Access") { go(to: .photos) }
+            primary("Back to Photo Access") { go(.photos) }
         } else if model.appleUserID == nil {
-            primary("Back to Sign In") { go(to: .signIn) }
-        } else {
-            switch model.firstScan {
-            case .notStarted:
-                primary("Find My Moments") { model.startFirstScan() }
-            case .scanning(let progress):
-                ProgressView(progress.subtitle)
-                    .padding(16)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
+            primary("Back to Sign In") { go(.signIn) }
+        } else if case .notStarted = model.firstScan {
+            primary("Find My Moments") { model.startFirstScan() }
         }
-    }
-}
-
-// MARK: Pages
-
-enum OnboardingPage: Int, CaseIterable {
-    case welcome, howItWorks, privacy, photos, notifications, sharing, signIn, firstScan
-
-    var next: OnboardingPage? { OnboardingPage(rawValue: rawValue + 1) }
-    var previous: OnboardingPage? { OnboardingPage(rawValue: rawValue - 1) }
-
-    var palette: IllustrationPalette {
-        switch self {
-        case .welcome: .welcome
-        case .howItWorks: .howItWorks
-        case .privacy: .privacy
-        case .photos: .photos
-        case .notifications: .notifications
-        case .sharing: .sharing
-        case .signIn: .signIn
-        case .firstScan: .firstScan
-        }
-    }
-
-    @ViewBuilder
-    var illustration: some View {
-        switch self {
-        case .welcome: WelcomeIllustration()
-        case .howItWorks: HowItWorksIllustration()
-        case .privacy: PrivacyIllustration()
-        case .photos: PhotosAccessIllustration()
-        case .notifications: NotificationsIllustration()
-        case .sharing: SharingIllustration()
-        case .signIn: SignInIllustration()
-        case .firstScan: FirstScanIllustration()
-        }
-    }
-}
-
-private struct OnboardingText: View {
-    let page: OnboardingPage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if let eyebrow {
-                Text(eyebrow)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(page.palette.primary)
-            }
-            Text(title)
-                .font(.largeTitle.bold())
-                .fixedSize(horizontal: false, vertical: true)
-            Text(message)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if !points.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(points, id: \.text) { point in
-                        Label {
-                            Text(point.text)
-                        } icon: {
-                            Image(systemName: point.symbol)
-                                .foregroundStyle(page.palette.primary)
-                                .frame(width: 28)
-                        }
-                        .font(.body)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(.top, 4)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private struct Point {
-        var symbol: String
-        var text: String
-    }
-
-    private var eyebrow: String? {
-        page == .welcome ? AppInfo.name : nil
-    }
-
-    private var title: String {
-        switch page {
-        case .welcome: String(localized: "Live it. We'll find the moment.")
-        case .howItWorks: String(localized: "One moment a day. You say yes or no.")
-        case .privacy: String(localized: "Private by design")
-        case .photos: String(localized: "Let the AI see your recent photos")
-        case .notifications: String(localized: "Know when your moment is ready")
-        case .sharing: String(localized: "Friends only. Gone after 30 days.")
-        case .signIn: String(localized: "Sign in with Apple")
-        case .firstScan: String(localized: "Find your first moment")
-        }
-    }
-
-    private var message: String {
-        switch page {
-        case .welcome:
-            String(localized: "\(AppInfo.name) finds a meaningful moment in your recent photos and suggests a camera-original photo to share with your friends. Only when you say yes.")
-        case .howItWorks:
-            String(localized: "The AI picks one moment. You only choose Share or Skip. You never scroll or pick a photo yourself.")
-        case .privacy:
-            String(localized: "Analysis happens on this iPhone. Your photos never leave it unless you tap Share and confirm with Face ID.")
-        case .photos:
-            String(localized: "Full access lets the AI look across your recent photos to find a moment. With limited access it sees only the photos you select, so it cannot find new ones.")
-        case .notifications:
-            String(localized: "We tell you when your moment is ready and when a friend shares. The notification never shows the photo.")
-        case .sharing:
-            String(localized: "You share only with friends you invite, through iCloud. Friends can see a moment for 30 days. Then it disappears from their feed and your iCloud.")
-        case .signIn:
-            String(localized: "Your Apple account is your identity for friends. We get no photos, and we do not ask for your email.")
-        case .firstScan:
-            String(localized: "\(AppInfo.name) looks at your photos from the last few days, on this iPhone. You can leave the app while it works.")
-        }
-    }
-
-    private var points: [Point] {
-        switch page {
-        case .welcome:
-            []
-        case .howItWorks:
-            [
-                Point(symbol: "sparkles", text: String(localized: "At most one suggestion a day, only when a moment stands out.")),
-                Point(symbol: "faceid", text: String(localized: "Face ID confirms every share.")),
-                Point(symbol: "person.2.fill", text: String(localized: "Friends only. No public profile, no likes.")),
-            ]
-        case .privacy:
-            [
-                Point(symbol: "iphone", text: String(localized: "On-device AI. No photo is uploaded to analyze it.")),
-                Point(symbol: "icloud.fill", text: String(localized: "Shared photos live in your iCloud. There is no photo server.")),
-                Point(symbol: "hand.raised.fill", text: String(localized: "No ads and no tracking.")),
-            ]
-        case .photos:
-            [
-                Point(symbol: "eye", text: String(localized: "We read photos from the last few days: the picture, its date and a rough place.")),
-                Point(symbol: "eye.slash", text: String(localized: "We skip screenshots and never edit or delete a photo.")),
-                Point(symbol: "lock.fill", text: String(localized: "Nothing leaves this iPhone unless you share it.")),
-            ]
-        case .notifications:
-            [
-                Point(symbol: "sparkles", text: String(localized: "\"A moment is ready\", at most once a day.")),
-                Point(symbol: "person.2.fill", text: String(localized: "\"A friend shared a moment.\"")),
-            ]
-        case .sharing:
-            [
-                Point(symbol: "link", text: String(localized: "Invite with a link or a QR code. Up to \(FriendRoster.defaultLimit) friends.")),
-                Point(symbol: "calendar.badge.clock", text: String(localized: "Each moment shows how many days it has left.")),
-                Point(symbol: "trash", text: String(localized: "Delete your moment any time.")),
-            ]
-        case .signIn:
-            [
-                Point(symbol: "person.crop.circle", text: String(localized: "Friends see only the name you choose.")),
-                Point(symbol: "photo", text: String(localized: "Signing in gives us no access to your photos.")),
-            ]
-        case .firstScan:
-            []
-        }
-    }
-}
-
-private struct PageIndicator: View {
-    let current: Int
-    let count: Int
-    let tint: Color
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<count, id: \.self) { i in
-                Capsule()
-                    .fill(i == current ? AnyShapeStyle(tint) : AnyShapeStyle(.quaternary))
-                    .frame(width: i == current ? 20 : 7, height: 7)
-            }
-        }
-        .animation(.smooth, value: current)
-        .accessibilityElement()
-        .accessibilityLabel("Page \(current + 1) of \(count)")
+        // While scanning there is no button. Onboarding ends by itself when the scan finishes.
     }
 }
 
 private struct StatusLine: View {
-    let text: String
+    let text: LocalizedStringKey
     let symbol: String
     let color: Color
 
@@ -399,7 +294,8 @@ private struct StatusLine: View {
             Image(systemName: symbol).foregroundStyle(color)
         }
         .font(.footnote)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
     }
 }
 #endif

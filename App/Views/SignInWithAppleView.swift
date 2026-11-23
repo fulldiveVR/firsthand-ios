@@ -28,7 +28,8 @@ struct SignInWithAppleView: View {
                 }
             }
             .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-            .frame(height: 50)
+            .frame(height: 52)
+            .clipShape(Capsule())
 
             if failed {
                 Text("Sign in did not complete. Try again.")

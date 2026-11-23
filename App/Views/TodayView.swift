@@ -344,6 +344,8 @@ struct AnalyzingCard: View {
     var onRetry: () -> Void
     /// Onboarding shows the card without the Stop button.
     var showsButton = true
+    /// Onboarding: glyph and progress only. The page title carries the text.
+    var compact = false
     @State private var drift = false
 
     var body: some View {
@@ -354,8 +356,9 @@ struct AnalyzingCard: View {
                 .imageScale(.large)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.tint)
-                .symbolEffect(.pulse, options: .repeating, isActive: !failed && !reduceMotion)
+                .symbolEffect(.pulse, options: .repeating, isActive: !failed && !reduceMotion && (progress != nil || !compact))
                 .accessibilityHidden(true)
+            if !compact {
             VStack(spacing: 6) {
                 Text(failed ? "Couldn't finish looking" : "Looking at your recent photos")
                     .font(.title3.bold())
@@ -364,6 +367,7 @@ struct AnalyzingCard: View {
                     .foregroundStyle(.secondary)
             }
             .multilineTextAlignment(.center)
+            }
             if let progress, progress.phase == .analyzing, progress.total > 0, !failed {
                 ProgressView(value: progress.fractionCompleted)
                     .progressViewStyle(ThinProgressStyle())
