@@ -29,6 +29,19 @@ Domain logic tests run on macOS:
 cd Packages/FirsthandCore && swift test
 ```
 
+Screenshots with demo content (Debug builds only, see `App/Debug/DemoContent.swift`):
+
+```sh
+xcrun simctl launch booted com.fulldive.firsthand -demoContent YES -demoState suggestion
+# -demoState suggestion|analyzing|quiet|shared|skipped|limited|failed
+# -demoFriends none|waiting|some, -demoSheet friends|profile|qr|share|details|postDetails
+# -resetOnboarding YES -onboardingPage 1...8
+```
+
+The fixture and onboarding photos are abstract renders from `scripts/make-demo-fixtures.swift`.
+
+Design spec: [docs/design.md](docs/design.md).
+
 ## Architecture
 
 ```
@@ -41,8 +54,11 @@ App/                        SwiftUI iOS app
   AppDelegate.swift         share-link accept (scene delegate), friend pushes
   Adapters/                 PhotoKit and its change observer, Vision, on-device caption (Foundation Models),
                             notifications, LocalAuthentication, CloudKit sharing
-  Views/                    Onboarding, Today, Feed, Friends, Settings
-  Resources/                Info.plist, entitlements
+  Design/                   Theme tokens (radii, spacing), monogram avatar
+  Views/                    Moments home (Today, friends' moments, your moments), share sheet,
+                            moment details, Friends and Profile sheets, onboarding
+  Debug/                    Demo content and fixture photos, Debug builds only
+  Resources/                Info.plist, entitlements, asset catalog (accent color, onboarding sample photos)
 Packages/FirsthandCore/     pure Swift package, tested on macOS
   Models.swift              PhotoCandidate, AnalysisSignals, ProvenanceStatus, Suggestion, Friend, Post
   Protocols.swift           PhotoLibrary, ImageAnalyzer, ShareService, FriendDirectory, Notifier, Clock
@@ -67,7 +83,7 @@ Packages/FirsthandCore/     pure Swift package, tested on macOS
 
 - Photos are analyzed on the device with Vision. No photo leaves the iPhone unless the user taps Share and confirms with Face ID or Touch ID.
 - The app suggests one photo at a time. The user can only share it or skip it.
-- Screenshots are excluded. Provenance is shown as "likely camera" or "unknown". The app never calls a photo "verified".
+- Screenshots are excluded. Provenance is shown as "Likely original" or "Unknown". The app never calls a photo "verified".
 - Sharing goes to approved friends only, through CloudKit Sharing. Apple hosts the data. There is no own photo server.
 - No ads, no tracking, no like counts. Settings deletes all local and shared data.
 

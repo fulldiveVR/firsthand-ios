@@ -17,6 +17,9 @@ struct FirsthandApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
+                #if DEBUG
+                .modifier(DebugAccessibilityOverrides())
+                #endif
                 .task { model.attachSharingInbox() }
         }
         .onChange(of: scenePhase) { _, phase in

@@ -41,45 +41,99 @@ extension CKAllowedSharingOptions {
     }
 }
 
-/// Shows an invite link as a QR code with a share button.
+/// The invite as a Wallet-style pass: a tinted band, the QR code on a white plate, and the inviter's name.
 struct InviteLinkSheet: View {
-    let invite: AppModel.OutgoingInvite
+    @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    let invite: AppModel.OutgoingInvite
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                if let name = invite.friendName, !name.isEmpty {
-                    Text("Send this link to \(name) so they can see your moments.")
-                        .multilineTextAlignment(.center)
-                } else {
-                    Text("Your friend scans this code with the iPhone camera, or opens the link.")
-                        .multilineTextAlignment(.center)
+            ScrollView {
+                VStack(spacing: 24) {
+                    if let name = invite.friendName, !name.isEmpty {
+                        Text("Send this to \(name) so they can see your moments too.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    InvitePass(url: invite.url, inviter: model.userName)
+                    ShareLink(item: invite.url) {
+                        Label("Send Link", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(.accentColor)
+                    .controlSize(.large)
                 }
-                if let image = QRCode.image(for: invite.url) {
-                    Image(uiImage: image)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 280)
-                        .accessibilityLabel("Invite QR code")
-                }
-                ShareLink(item: invite.url) {
-                    Label("Send Link", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(.borderedProminent)
-                Text("The link works for one person. They need iCloud and \(AppInfo.name).")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 8)
             }
-            .padding(24)
+            .scrollBounceBehavior(.basedOnSize)
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Invite")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
+    }
+}
+
+/// A boarding-pass style card. The QR plate stays white in dark mode so cameras can read it.
+struct InvitePass: View {
+    let url: URL
+    var inviter: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "sun.horizon.fill")
+                    .font(.title3)
+                    .accessibilityHidden(true)
+                Text(AppInfo.name)
+                    .font(.headline)
+                Spacer()
+                Text("Invite")
+                    .font(.subheadline.weight(.semibold))
+                    .opacity(0.85)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background(
+                LinearGradient(
+                    colors: [Color.accentColor, Color.accentColor.mix(with: .pink, by: 0.35)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+            )
+
+            VStack(spacing: 16) {
+                if let image = QRCode.image(for: url) {
+                    Image(uiImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 240, maxHeight: 240)
+                        .padding(14)
+                        .background(.white, in: RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous))
+                        .accessibilityLabel("Invite QR code")
+                }
+                VStack(spacing: 4) {
+                    if let inviter, !inviter.isEmpty {
+                        Text(inviter).font(.title3.bold())
+                    }
+                    Text("Scan with the iPhone camera. Works for one person.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity)
+            .background(Color(.secondarySystemGroupedBackground))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.pass, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
     }
 }
 

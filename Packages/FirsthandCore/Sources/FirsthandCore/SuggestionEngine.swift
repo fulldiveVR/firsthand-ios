@@ -52,10 +52,17 @@ public struct SuggestionEngine: Sendable {
 
     /// Picks the best photo of the best qualifying moment.
     public func pick(from moments: [RankedMoment], history: SuggestionHistory, now: Date) -> Suggestion? {
-        pick(from: moments.map(\.best), history: history, now: now)
+        let newPlaces = Set(moments.filter(\.isNewPlace).map(\.best.candidate.assetID))
+        return pick(from: moments.map(\.best), history: history, now: now, newPlaceAssetIDs: newPlaces)
     }
 
-    public func pick(from scored: [ScoredCandidate], history: SuggestionHistory, now: Date) -> Suggestion? {
+    /// `newPlaceAssetIDs` marks photos whose moment is at a new place, for the "New place" reason.
+    public func pick(
+        from scored: [ScoredCandidate],
+        history: SuggestionHistory,
+        now: Date,
+        newPlaceAssetIDs: Set<String> = []
+    ) -> Suggestion? {
         // An undecided suggestion blocks new ones. There is never a second option.
         if history.pending != nil { return nil }
 
@@ -79,7 +86,14 @@ public struct SuggestionEngine: Sendable {
             provenance: c.signals.provenance,
             sceneLabels: c.signals.sceneLabels,
             locationBucket: c.locationBucket,
-            createdAt: now
+            createdAt: now,
+            reasons: MomentReason.reasons(
+                signals: c.signals,
+                isNewPlace: newPlaceAssetIDs.contains(c.assetID),
+                captureDate: c.captureDate,
+                now: now
+            ),
+            captureDate: c.captureDate
         )
     }
 }

@@ -10,6 +10,12 @@ enum AppInfo {
             ?? "App"
     }
 
+    static var version: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        return "\(short) (\(build))"
+    }
+
     static var bundleID: String { Bundle.main.bundleIdentifier ?? "com.fulldive.firsthand" }
 
     static var analysisTaskID: String { bundleID + ".analysis" }

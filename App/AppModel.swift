@@ -4,6 +4,7 @@ import CloudKit
 import Foundation
 import Observation
 import Synchronization
+import UIKit
 
 @MainActor
 @Observable
@@ -41,8 +42,10 @@ final class AppModel {
         case denied
     }
 
-    enum AppTab: Hashable {
-        case today, feed, friends, settings
+    /// Sheets on top of the Moments home screen.
+    enum HomeSheet: String, Identifiable {
+        case friends, profile
+        var id: String { rawValue }
     }
 
     let services: AppServices
@@ -58,21 +61,35 @@ final class AppModel {
     /// Friends' posts and my own posts, newest first.
     var feed: [Post] = []
     var shareState: ShareState = .idle
+    /// Counts successful shares, for the success haptic.
+    var shareSuccessCount = 0
     var firstScan: FirstScanState = .notStarted
     var manualScan: ManualScanState = .idle
     var notificationAccess: NotificationAccess = .notDetermined
-    var selectedTab: AppTab = .today
+    var homeSheet: HomeSheet?
+    /// The name from Sign in with Apple, shown on the profile. Friends see the CloudKit name.
+    var userName: String? {
+        didSet { UserDefaults.standard.set(userName, forKey: Self.userNameKey) }
+    }
     private var manualScanTask: Task<Void, Never>?
     private var manualScanStop: StopSignal?
     private var didCleanUpExpiredPosts = false
     var hasCompletedFirstScan: Bool {
         didSet { UserDefaults.standard.set(hasCompletedFirstScan, forKey: Self.firstScanKey) }
     }
-    /// Set after I accepted a friend's share and did not share back yet. The UI asks once.
-    var reverseShareOffer: Friendship?
+    /// A friend to highlight in the Friends sheet, after an invite was accepted.
+    var highlightedFriendID: String?
     /// A link to send, shown in a sheet with a QR code.
     var outgoingInvite: OutgoingInvite?
     var sharingError: String?
+    /// Today's suggestion after the user shared or skipped it. Today then shows the decided state.
+    var decidedToday: Suggestion?
+    /// Reverse-geocoded names of coarse location buckets, for "Near ..." copy.
+    var placeNames: [String: String] = [:]
+    /// Photos with a stored analysis result, for the privacy stats.
+    var analyzedPhotoCount = 0
+    /// Debug demo content is on. Real services are not read.
+    var isDemo = false
 
     struct OutgoingInvite: Identifiable, Equatable {
         var id: URL { url }
@@ -82,10 +99,12 @@ final class AppModel {
 
     private static let userKey = "appleUserID"
     private static let firstScanKey = "hasCompletedFirstScan"
+    private static let userNameKey = "userName"
 
     init(services: AppServices) {
         self.services = services
         appleUserID = UserDefaults.standard.string(forKey: Self.userKey)
+        userName = UserDefaults.standard.string(forKey: Self.userNameKey)
         hasCompletedFirstScan = UserDefaults.standard.bool(forKey: Self.firstScanKey)
         #if DEBUG
         applyDebugLaunchArguments()
@@ -95,10 +114,14 @@ final class AppModel {
     var isOnboarded: Bool { appleUserID != nil && photoAccess.canRead && hasCompletedFirstScan }
 
     func refresh() async {
+        if isDemo { return }
         photoAccess = await services.library.authorizationStatus()
         notificationAccess = await services.notifier.access()
         if photoAccess.canRead { services.startObservingLibrary() }
-        pending = await services.history.load().pending
+        analyzedPhotoCount = (try? await services.analysisCache.records().count) ?? analyzedPhotoCount
+        let history = await services.history.load()
+        pending = history.pending
+        decidedToday = Self.decidedToday(in: history)
         // The 30-day rule, owner side. Once per launch, before the feed loads.
         if isOnboarded && !didCleanUpExpiredPosts {
             didCleanUpExpiredPosts = true
@@ -107,11 +130,25 @@ final class AppModel {
         await refreshSharing()
     }
 
+    /// The last suggestion made today that the user shared or skipped.
+    static func decidedToday(in history: SuggestionHistory, now: Date = Date()) -> Suggestion? {
+        history.suggestions.last { $0.decision != nil && Calendar.current.isDate($0.createdAt, inSameDayAs: now) }
+    }
+
+    /// The suggestion photo. Demo assets come from the debug asset catalog.
+    func image(for assetID: String, side: CGFloat) async -> UIImage? {
+        #if DEBUG
+        if let demo = DemoContent.image(for: assetID) { return demo }
+        #endif
+        return await services.library.thumbnail(for: assetID, side: side)
+    }
+
     /// Feed posts that are not expired at `now`. The feed view reads this, so a post never shows after 30 days.
     func visibleFeed(now: Date = Date()) -> [Post] { Post.visible(feed, now: now) }
 
     /// Friends from CloudKit, then friends' posts and my posts.
     func refreshSharing() async {
+        if isDemo { return }
         if let list = try? await services.friends.friendships() {
             friendships = list.filter(\.state.isActive)
             friends = friendships.map(\.asFriend)
@@ -136,7 +173,11 @@ final class AppModel {
             let friendship = try await services.sharing.accept(metadata)
             await refreshSharing()
             let current = friendships.first { $0.id == friendship.id } ?? friendship
-            if current.needsReverseShare { reverseShareOffer = current }
+            highlightedFriendID = current.id
+            homeSheet = .friends
+            // Finish the friendship in the same flow: share back so they see my moments too.
+            // If this fails, the Friends sheet shows "Finish adding" for this friend.
+            if current.needsReverseShare { await shareBack(with: current) }
         } catch FriendshipError.friendLimitReached(let limit) {
             sharingError = String(localized: "You already have \(limit) friends. Remove one to accept this invite.")
         } catch CloudKitSharing.SharingError.ownShare {
@@ -148,7 +189,6 @@ final class AppModel {
 
     /// Reverse share: lets the friend whose share I accepted see my posts too.
     func shareBack(with friendship: Friendship) async {
-        reverseShareOffer = nil
         do {
             let url = try await services.friends.shareBack(with: friendship.id)
             outgoingInvite = OutgoingInvite(url: url, friendName: friendship.displayName)
@@ -260,28 +300,36 @@ final class AppModel {
     }
 
     /// Share needs Face ID or Touch ID every time. Only approved friends receive the photo.
-    func share() async {
-        guard let suggestion = pending else { return }
+    /// Returns `true` when the moment was shared.
+    @discardableResult
+    func share() async -> Bool {
+        guard let suggestion = pending else { return false }
         shareState = .working
         do {
             guard try await gate.confirmShare() else {
                 shareState = .idle
-                return
+                return false
             }
-            guard let data = try await services.library.imageData(for: suggestion.assetID) else {
-                shareState = .failed(String(localized: "This photo is no longer on your iPhone."))
-                return
+            if !isDemo {
+                guard let data = try await services.library.imageData(for: suggestion.assetID) else {
+                    shareState = .failed(String(localized: "This photo is no longer on your iPhone."))
+                    return false
+                }
+                // The zone is shared with all participants. Anyone in my share will see the post.
+                let recipients = friendships.filter { $0.outgoing != .none }.map(\.id)
+                _ = try await services.shareService.share(suggestion, imageData: data, with: recipients)
             }
-            // The zone is shared with all participants. Anyone in my share will see the post.
-            let recipients = friendships.filter { $0.outgoing != .none }.map(\.id)
-            _ = try await services.shareService.share(suggestion, imageData: data, with: recipients)
             try await decide(.share, for: suggestion)
             shareState = .idle
+            shareSuccessCount += 1
+            if !isDemo { await refreshSharing() }
+            return true
         } catch ShareError.noRecipients {
             shareState = .failed(String(localized: "Add a friend first."))
         } catch {
-            shareState = .failed(String(localized: "Sharing failed. Try again later."))
+            shareState = .failed(String(localized: "Couldn't share. Check your connection and try again."))
         }
+        return false
     }
 
     func skip() async {
@@ -290,17 +338,28 @@ final class AppModel {
     }
 
     private func decide(_ decision: ShareDecision, for suggestion: Suggestion) async throws {
+        var decided = suggestion
+        decided.decision = decision
+        if isDemo {
+            pending = nil
+            decidedToday = decided
+            return
+        }
         var history = await services.history.load()
         history.record(decision, for: suggestion.id)
         try await services.history.save(history)
         pending = nil
+        decidedToday = Self.decidedToday(in: history) ?? decided
     }
 
     func deleteAllData() async {
         try? await services.deleteAllLocalAndSharedData()
         appleUserID = nil
+        userName = nil
         hasCompletedFirstScan = false
         pending = nil
+        decidedToday = nil
+        homeSheet = nil
         feed = []
         friends = []
         friendships = []
@@ -363,6 +422,7 @@ final class AppModel {
         manualScanTask = nil
         manualScanStop = nil
         pending = await services.history.load().pending
+        analyzedPhotoCount = (try? await services.analysisCache.records().count) ?? analyzedPhotoCount
         manualScan = .finished(result)
     }
 
@@ -372,11 +432,17 @@ final class AppModel {
     /// Screenshot and test helpers. Debug builds only.
     /// `-resetOnboarding YES` starts onboarding again. `-skipOnboarding YES` opens the tabs.
     /// `-onboardingPage N` (1-based) opens that onboarding page. `-demoProgress YES` shows a fixed progress state.
+    /// `-demoContent YES` and `-demoState <state>` load fixture content, see `DemoContent`.
     private func applyDebugLaunchArguments() {
         let defaults = UserDefaults.standard
+        if DemoContent.isEnabled { DemoContent.apply(to: self) }
         if defaults.bool(forKey: "resetOnboarding") {
             appleUserID = nil
             hasCompletedFirstScan = false
+            if isDemo {
+                photoAccess = .notDetermined
+                notificationAccess = .notDetermined
+            }
         }
         if defaults.bool(forKey: "skipOnboarding") {
             if appleUserID == nil { appleUserID = "debug-user" }
@@ -387,6 +453,11 @@ final class AppModel {
             let demo = AnalysisProgress(completed: 37, total: 120, phase: .analyzing)
             firstScan = .scanning(demo)
             manualScan = .running(demo)
+            // With demo content this shows the live first scan page of onboarding.
+            if isDemo {
+                hasCompletedFirstScan = false
+                manualScan = .idle
+            }
         }
     }
 
