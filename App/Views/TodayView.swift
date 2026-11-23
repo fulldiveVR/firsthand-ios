@@ -100,12 +100,13 @@ struct MomentHeroCard: View {
     var onSkip: () -> Void
     var onDetails: () -> Void
 
+    /// At accessibility text sizes the text moves below the photo, so the photo stays visible.
+    private var stacked: Bool { typeSize.isAccessibilitySize }
+    /// Text sits on the photo with white type, unless Reduce Transparency puts it on a material panel.
+    private var onPhoto: Bool { !stacked && !reduceTransparency }
+
     var body: some View {
-        MomentPhoto(assetID: suggestion.assetID, side: 1400)
-            .matchedGeometryEffect(id: MorphID.photo, in: namespace)
-            .aspectRatio(Theme.momentAspect, contentMode: .fit)
-            .overlay(alignment: .bottom) { content }
-            .overlay(alignment: .topTrailing) { infoButton }
+        card
             .clipShape(Theme.shape(Theme.Radius.hero))
             .contentShape(Theme.shape(Theme.Radius.hero))
             .onTapGesture(perform: onDetails)
@@ -118,6 +119,24 @@ struct MomentHeroCard: View {
             .accessibilityAction(named: "Share", onShare)
             .accessibilityAction(named: "Skip", onSkip)
             .accessibilityAction(named: "Details", onDetails)
+    }
+
+    @ViewBuilder
+    private var card: some View {
+        let photo = MomentPhoto(assetID: suggestion.assetID, side: 1400)
+            .matchedGeometryEffect(id: MorphID.photo, in: namespace)
+            .aspectRatio(Theme.momentAspect, contentMode: .fit)
+        if stacked {
+            VStack(spacing: 0) {
+                photo.overlay(alignment: .topTrailing) { infoButton }
+                content
+            }
+            .cardBackground(radius: Theme.Radius.hero)
+        } else {
+            photo
+                .overlay(alignment: .bottom) { content }
+                .overlay(alignment: .topTrailing) { infoButton }
+        }
     }
 
     /// Black scrim under the text: at least the bottom 45% of the photo, and always 72 pt above the caption.
@@ -142,21 +161,24 @@ struct MomentHeroCard: View {
                 if let caption = suggestion.caption {
                     Text(caption)
                         .font(.title2.bold())
-                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
-                        .foregroundStyle(reduceTransparency ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
+                        .lineLimit(stacked ? nil : 2)
+                        .foregroundStyle(onPhoto ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                 }
                 Text(model.contextLine(for: suggestion))
                     .font(.subheadline)
-                    .foregroundStyle(reduceTransparency ? AnyShapeStyle(.secondary) : AnyShapeStyle(.white.opacity(0.85)))
+                    .foregroundStyle(onPhoto ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
             }
-            ReasonChips(reasons: MomentReason.chips(suggestion.displayReasons))
+            .fixedSize(horizontal: false, vertical: true)
+            ReasonChips(reasons: MomentReason.chips(suggestion.displayReasons), onPhoto: onPhoto)
             ShareSkipButtons(onShare: onShare, onSkip: onSkip)
                 .disabled(model.shareState == .working)
         }
         .padding(Theme.Spacing.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            if reduceTransparency {
+            if stacked {
+                EmptyView()
+            } else if reduceTransparency {
                 Rectangle().fill(.regularMaterial)
             } else {
                 scrim
@@ -229,8 +251,9 @@ struct ShareSkipButtons: View {
 struct ReasonChips: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let reasons: [MomentReason]
+    /// White text on clear glass over the photo. Off the photo, plain secondary labels.
+    var onPhoto = true
 
     var body: some View {
         if typeSize.isAccessibilitySize {
@@ -242,17 +265,32 @@ struct ReasonChips: View {
 
     private var chips: some View {
         ForEach(reasons, id: \.self) { reason in
-            Label(reason.title, systemImage: reason.symbolName)
+            let label = Label(reason.title, systemImage: reason.symbolName)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(reduceTransparency ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .glassEffect(.clear, in: .capsule)
-                .overlay {
-                    if contrast == .increased {
-                        Capsule().strokeBorder(.white.opacity(0.8), lineWidth: 1)
+                .fixedSize(horizontal: false, vertical: true)
+            if onPhoto {
+                label
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassEffect(.clear, in: .capsule)
+                    .overlay {
+                        if contrast == .increased {
+                            Capsule().strokeBorder(.white.opacity(0.8), lineWidth: 1)
+                        }
                     }
-                }
+            } else {
+                label
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.fill.tertiary, in: Capsule())
+                    .overlay {
+                        if contrast == .increased {
+                            Capsule().strokeBorder(.secondary, lineWidth: 1)
+                        }
+                    }
+            }
         }
     }
 }
@@ -441,7 +479,7 @@ struct QuietDayCard: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        AdaptiveStack(spacing: 14) {
             Image(systemName: "leaf")
                 .font(.title2)
                 .symbolRenderingMode(.hierarchical)
@@ -463,6 +501,7 @@ struct QuietDayCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .cardBackground()
     }
 }
@@ -502,6 +541,7 @@ struct DecidedCard: View {
                                 if showCheck || reduceMotion {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundStyle(.green)
+                                        .accessibilityHidden(true)
                                         .transition(.symbolEffect(.drawOn))
                                 }
                             }
@@ -535,7 +575,7 @@ struct DecidedCard: View {
 struct LimitedAccessCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
+            AdaptiveStack(spacing: 14) {
                 Image(systemName: "photo.badge.exclamationmark")
                     .font(.title2)
                     .symbolRenderingMode(.hierarchical)
@@ -561,6 +601,21 @@ struct LimitedAccessCard: View {
         }
         .padding(Theme.Spacing.cardPadding)
         .cardBackground()
+    }
+}
+
+/// A leading-aligned HStack that becomes a VStack at accessibility text sizes.
+struct AdaptiveStack<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var spacing: CGFloat = 12
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: spacing) { content }
+        } else {
+            HStack(alignment: .top, spacing: spacing) { content }
+        }
     }
 }
 

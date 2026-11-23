@@ -1,6 +1,7 @@
 #if os(iOS) && DEBUG
 import FirsthandCore
 import Foundation
+import SwiftUI
 import UIKit
 
 /// Fixed demo content for screenshots. Debug builds only. Nothing here touches PhotoKit or CloudKit.
@@ -178,6 +179,21 @@ enum DemoContent {
             model.photoAccess = .limited
         case .failed:
             model.manualScan = .finished(.failed)
+        }
+    }
+}
+
+/// `-demoReduceTransparency YES` and `-demoReduceMotion YES` turn on the SwiftUI branches for screenshots.
+/// The system glass does not change, only the app's own code paths.
+struct DebugAccessibilityOverrides: ViewModifier {
+    func body(content: Content) -> some View {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: "demoReduceTransparency") || defaults.bool(forKey: "demoReduceMotion") {
+            content
+                .environment(\._accessibilityReduceTransparency, defaults.bool(forKey: "demoReduceTransparency"))
+                .environment(\._accessibilityReduceMotion, defaults.bool(forKey: "demoReduceMotion"))
+        } else {
+            content
         }
     }
 }

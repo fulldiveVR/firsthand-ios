@@ -7,6 +7,7 @@ import SwiftUI
 struct ShareSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     let suggestion: Suggestion
     /// Called when the audience is empty and the user wants to invite someone.
     var onInvite: () -> Void
@@ -42,7 +43,7 @@ struct ShareSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium])
         .interactiveDismissDisabled(model.shareState == .working)
         .onAppear {
             if case .failed = model.shareState { model.shareState = .idle }
@@ -52,7 +53,7 @@ struct ShareSheet: View {
     private var visibleUntil: Date { Date().addingTimeInterval(PostExpiry.lifetime) }
 
     private var header: some View {
-        HStack(spacing: 14) {
+        AdaptiveStack(spacing: 14) {
             MomentPhoto(assetID: suggestion.assetID, side: 300)
                 .frame(width: 72, height: 72)
                 .clipShape(Theme.shape(Theme.Radius.medium))

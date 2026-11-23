@@ -24,6 +24,8 @@ struct OnboardingHero: View {
             case .firstScan: FirstScanHero()
             }
         }
+        // Decorative: the hero keeps its size at large text sizes.
+        .dynamicTypeSize(...DynamicTypeSize.large)
         .accessibilityHidden(true)
     }
 }
