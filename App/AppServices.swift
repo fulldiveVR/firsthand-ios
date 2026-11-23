@@ -85,7 +85,7 @@ struct AppServices: Sendable {
     }
 
     /// How far back photos are analyzed and suggested.
-    static let lookback: TimeInterval = 3 * 24 * 60 * 60
+    static let lookback = SuggestionPipeline.defaultLookback
 
     static let live: AppServices = {
         let library = PhotoKitLibrary()
