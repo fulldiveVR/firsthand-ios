@@ -23,16 +23,10 @@ The `.xcodeproj` is generated and not committed.
 Signing: copy `Local.xcconfig.example` to `Local.xcconfig` and set your team ID.
 `Local.xcconfig` is gitignored, so the team ID is never committed.
 
-Domain logic tests run on macOS without Xcode:
+Domain logic tests run on macOS:
 
 ```sh
 cd Packages/FirsthandCore && swift test
-```
-
-With Command Line Tools only (no Xcode), `swift test` may not find the Swift Testing macros. Pass the plugin path:
-
-```sh
-swift test -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
 ```
 
 ## Architecture
