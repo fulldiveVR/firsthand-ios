@@ -517,7 +517,6 @@ struct DecidedCard: View {
                 .contentShape(Theme.shape(Theme.Radius.card))
             }
             .buttonStyle(.plain)
-            .sensoryFeedback(.success, trigger: showCheck) { _, new in new }
             .onAppear {
                 withAnimation(.easeOut(duration: 0.6).delay(0.2)) { showCheck = true }
             }

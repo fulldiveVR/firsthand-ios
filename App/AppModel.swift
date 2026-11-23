@@ -61,6 +61,8 @@ final class AppModel {
     /// Friends' posts and my own posts, newest first.
     var feed: [Post] = []
     var shareState: ShareState = .idle
+    /// Counts successful shares, for the success haptic.
+    var shareSuccessCount = 0
     var firstScan: FirstScanState = .notStarted
     var manualScan: ManualScanState = .idle
     var notificationAccess: NotificationAccess = .notDetermined
@@ -294,33 +296,36 @@ final class AppModel {
     }
 
     /// Share needs Face ID or Touch ID every time. Only approved friends receive the photo.
-    func share() async {
-        guard let suggestion = pending else { return }
+    /// Returns `true` when the moment was shared.
+    @discardableResult
+    func share() async -> Bool {
+        guard let suggestion = pending else { return false }
         shareState = .working
         do {
             guard try await gate.confirmShare() else {
                 shareState = .idle
-                return
+                return false
             }
-            if isDemo {
-                try await decide(.share, for: suggestion)
-                shareState = .idle
-                return
+            if !isDemo {
+                guard let data = try await services.library.imageData(for: suggestion.assetID) else {
+                    shareState = .failed(String(localized: "This photo is no longer on your iPhone."))
+                    return false
+                }
+                // The zone is shared with all participants. Anyone in my share will see the post.
+                let recipients = friendships.filter { $0.outgoing != .none }.map(\.id)
+                _ = try await services.shareService.share(suggestion, imageData: data, with: recipients)
             }
-            guard let data = try await services.library.imageData(for: suggestion.assetID) else {
-                shareState = .failed(String(localized: "This photo is no longer on your iPhone."))
-                return
-            }
-            // The zone is shared with all participants. Anyone in my share will see the post.
-            let recipients = friendships.filter { $0.outgoing != .none }.map(\.id)
-            _ = try await services.shareService.share(suggestion, imageData: data, with: recipients)
             try await decide(.share, for: suggestion)
             shareState = .idle
+            shareSuccessCount += 1
+            if !isDemo { await refreshSharing() }
+            return true
         } catch ShareError.noRecipients {
             shareState = .failed(String(localized: "Add a friend first."))
         } catch {
-            shareState = .failed(String(localized: "Sharing failed. Try again later."))
+            shareState = .failed(String(localized: "Couldn't share. Check your connection and try again."))
         }
+        return false
     }
 
     func skip() async {
